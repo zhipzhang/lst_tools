@@ -1,0 +1,143 @@
+import numpy as np
+import pandas as pd
+import pytest
+
+from lst_ulities.datacheck import DataCheckTables
+from lst_ulities.run_statistics import RunStatistics
+
+
+@pytest.fixture
+def sample_tables():
+    """Build a minimal DataCheckTables instance for testing."""
+    flatfield = pd.DataFrame(
+        {
+            "runnumber": [1, 1, 2, 2, 3, 3],
+            "flatfield": [1.0, 1.1, 2.0, 2.1, 3.0, 3.1],
+        }
+    )
+    cosmic_intensity_spectrum = pd.DataFrame(
+        {
+            "runnumber": [1, 1, 2, 2, 3, 3],
+            "yyyymmdd": [20240101, 20240101, 20240102, 20240102, 20240103, 20240103],
+            "cosmic_intensity": [10.0, 12.0, 20.0, 22.0, 30.0, 32.0],
+        }
+    )
+    runsummary = pd.DataFrame(
+        {
+            "runnumber": [1, 2, 3],
+            "n_events": [100, 200, 300],
+            "source_name": ["Crab", "Crab", "Mrk421"],
+        }
+    )
+    return DataCheckTables(
+        flatfield=flatfield,
+        cosmic_intensity_spectrum=cosmic_intensity_spectrum,
+        runsummary=runsummary,
+    )
+
+
+def test_from_tables_mean_and_std(sample_tables):
+    """from_tables should compute mean and std per runnumber."""
+    spec = {
+        "cosmic_intensity_spectrum": {
+            "mean_intensity": ("cosmic_intensity", "mean"),
+            "std_intensity": ("cosmic_intensity", "std"),
+        },
+    }
+
+    stats = RunStatistics.from_tables(sample_tables, spec=spec)
+
+    assert list(stats.run_numbers) == [1, 2, 3]
+    assert stats.df.loc[1, "mean_intensity"] == pytest.approx(11.0)
+    assert stats.df.loc[2, "mean_intensity"] == pytest.approx(21.0)
+    assert stats.df.loc[3, "mean_intensity"] == pytest.approx(31.0)
+    assert stats.df.loc[1, "std_intensity"] == pytest.approx(np.std([10.0, 12.0], ddof=1))
+
+
+def test_from_tables_first_and_lambda(sample_tables):
+    """from_tables should support 'first' and custom lambda aggregations."""
+    spec = {
+        "runsummary": {
+            "first_source": ("source_name", "first"),
+            "total_events": ("n_events", "sum"),
+        },
+        "flatfield": {
+            "max_flatfield": ("flatfield", lambda x: x.max()),
+        },
+    }
+
+    stats = RunStatistics.from_tables(sample_tables, spec=spec)
+
+    assert list(stats.run_numbers) == [1, 2, 3]
+    assert list(stats.df["first_source"]) == ["Crab", "Crab", "Mrk421"]
+    assert stats.df.loc[1, "total_events"] == 100
+    assert stats.df.loc[1, "max_flatfield"] == pytest.approx(1.1)
+    assert stats.df.loc[2, "max_flatfield"] == pytest.approx(2.1)
+
+
+def test_from_tables_outer_join(sample_tables):
+    """from_tables should outer-join statistics from different tables."""
+    # Remove run 3 from runsummary so we can test outer join behavior.
+    tables = DataCheckTables(
+        flatfield=sample_tables.flatfield,
+        cosmic_intensity_spectrum=sample_tables.cosmic_intensity_spectrum,
+        runsummary=sample_tables.runsummary[sample_tables.runsummary["runnumber"] != 3].reset_index(drop=True),
+    )
+    spec = {
+        "cosmic_intensity_spectrum": {
+            "mean_intensity": ("cosmic_intensity", "mean"),
+        },
+        "runsummary": {
+            "first_source": ("source_name", "first"),
+        },
+    }
+
+    stats = RunStatistics.from_tables(tables, spec=spec)
+
+    assert list(stats.run_numbers) == [1, 2, 3]
+    assert pd.notna(stats.df.loc[3, "mean_intensity"])
+    assert pd.isna(stats.df.loc[3, "first_source"])
+
+
+def test_select_subset(sample_tables):
+    """select should return a new RunStatistics with only the masked runs."""
+    spec = {
+        "cosmic_intensity_spectrum": {
+            "mean_intensity": ("cosmic_intensity", "mean"),
+        },
+    }
+    stats = RunStatistics.from_tables(sample_tables, spec=spec)
+
+    mask = stats.df["mean_intensity"] > 15.0
+    selected = stats.select(mask)
+
+    assert list(selected.run_numbers) == [2, 3]
+    assert list(stats.run_numbers) == [1, 2, 3]
+
+
+def test_run_numbers_property(sample_tables):
+    """run_numbers should expose the DataFrame index."""
+    spec = {
+        "runsummary": {
+            "total_events": ("n_events", "sum"),
+        },
+    }
+    stats = RunStatistics.from_tables(sample_tables, spec=spec)
+
+    assert isinstance(stats.run_numbers, pd.Index)
+    assert list(stats.run_numbers) == [1, 2, 3]
+
+
+def test_from_tables_custom_named_aggregation(sample_tables):
+    """A user-defined callable should produce the expected named column."""
+    spec = {
+        "flatfield": {
+            "flatfield_range": ("flatfield", lambda x: x.max() - x.min()),
+        },
+    }
+
+    stats = RunStatistics.from_tables(sample_tables, spec=spec)
+
+    assert stats.df.loc[1, "flatfield_range"] == pytest.approx(0.1)
+    assert stats.df.loc[2, "flatfield_range"] == pytest.approx(0.1)
+    assert stats.df.loc[3, "flatfield_range"] == pytest.approx(0.1)
