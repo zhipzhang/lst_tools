@@ -35,7 +35,7 @@ class DataCheckTables:
         for file in files:
             with pd.HDFStore(file, mode="r") as store:
                 for name in table_names:
-                    table_data[name].append(store[name])
+                    table_data[name].append(store[f"/{name}"])
 
         return cls(**{name: pd.concat(dataframes, ignore_index=True) for name, dataframes in table_data.items()})
 
