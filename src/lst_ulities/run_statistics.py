@@ -51,6 +51,7 @@ def zenith_angle_mean(zenith_angles):
 DEFAULT_SPEC = {
     "cosmic_intensity_spectrum": {
         "n_subruns": ("run_number", "size"),
+        "date": ("YYYYMMDD", "first"),
         "mean_R422": ("ZD_corrected_cosmics_rate_at_422_pe", "mean"),
         "std_R422": ("ZD_corrected_cosmics_rate_at_422_pe", "std"),
         "mode_R422": ("ZD_corrected_cosmics_rate_at_422_pe", lambda x: find_mode(x)),
