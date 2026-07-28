@@ -13,11 +13,11 @@ def sample_tables():
             "flatfield": [1.0, 1.1, 2.0, 2.1, 3.0, 3.1],
         }
     )
-    cosmic_intensity_spectrum = pd.DataFrame(
+    cosmics_intensity_spectrum = pd.DataFrame(
         {
             "runnumber": [1, 2, 3],
             "yyyymmdd": [20240101, 20240102, 20240103],
-            "cosmic_intensity": [10.0, 20.0, 30.0],
+            "cosmics_intensity": [10.0, 20.0, 30.0],
         }
     )
     runsummary = pd.DataFrame(
@@ -28,26 +28,26 @@ def sample_tables():
     )
     return DataCheckTables(
         flatfield=flatfield,
-        cosmic_intensity_spectrum=cosmic_intensity_spectrum,
+        cosmics_intensity_spectrum=cosmics_intensity_spectrum,
         runsummary=runsummary,
     )
 
 
 def test_select_runs_subset(sample_tables):
     """select_runs should keep only the requested runs and leave the original intact."""
-    original_runs = set(sample_tables.cosmic_intensity_spectrum["runnumber"])
+    original_runs = set(sample_tables.cosmics_intensity_spectrum["runnumber"])
 
     filtered = sample_tables.select_runs([1, 3])
 
     assert set(filtered.flatfield["runnumber"]) == {1, 3}
-    assert set(filtered.cosmic_intensity_spectrum["runnumber"]) == {1, 3}
+    assert set(filtered.cosmics_intensity_spectrum["runnumber"]) == {1, 3}
     assert set(filtered.runsummary["runnumber"]) == {1, 3}
     assert len(filtered.flatfield) == 4
-    assert len(filtered.cosmic_intensity_spectrum) == 2
+    assert len(filtered.cosmics_intensity_spectrum) == 2
     assert len(filtered.runsummary) == 2
 
     # Original object must be unchanged
-    assert set(sample_tables.cosmic_intensity_spectrum["runnumber"]) == original_runs
+    assert set(sample_tables.cosmics_intensity_spectrum["runnumber"]) == original_runs
 
 
 def test_select_runs_with_set(sample_tables):
@@ -55,7 +55,7 @@ def test_select_runs_with_set(sample_tables):
     filtered = sample_tables.select_runs({2})
 
     assert set(filtered.flatfield["runnumber"]) == {2}
-    assert list(filtered.cosmic_intensity_spectrum["runnumber"]) == [2]
+    assert list(filtered.cosmics_intensity_spectrum["runnumber"]) == [2]
 
 
 def test_select_runs_empty_selection(sample_tables):
@@ -63,7 +63,7 @@ def test_select_runs_empty_selection(sample_tables):
     filtered = sample_tables.select_runs([999])
 
     assert filtered.flatfield.empty
-    assert filtered.cosmic_intensity_spectrum.empty
+    assert filtered.cosmics_intensity_spectrum.empty
     assert filtered.runsummary.empty
 
 

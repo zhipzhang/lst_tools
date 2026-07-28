@@ -8,7 +8,7 @@ import pandas as pd
 @dataclass
 class DataCheckTables:
     flatfield: pd.DataFrame
-    cosmic_intensity_spectrum: pd.DataFrame
+    cosmics_intensity_spectrum: pd.DataFrame
     runsummary: pd.DataFrame
 
     @classmethod
@@ -16,7 +16,7 @@ class DataCheckTables:
         """Load and concatenate DataCheck tables from a list of HDF5 files.
 
         Each file is opened once, and the tables ``flatfield``,
-        ``cosmic_intensity_spectrum``, and ``runsummary`` are read and
+        ``cosmics_intensity_spectrum``, and ``runsummary`` are read and
         concatenated across files.
 
         Parameters
@@ -45,9 +45,9 @@ class DataCheckTables:
         The summary shows the total number of runs, the run-number range, and
         the calendar-date range covered by the datacheck data.
         """
-        run_numbers, first_indices = np.unique(self.cosmic_intensity_spectrum["runnumber"], return_index=True)
+        run_numbers, first_indices = np.unique(self.cosmics_intensity_spectrum["runnumber"], return_index=True)
         dates = pd.to_datetime(
-            self.cosmic_intensity_spectrum["yyyymmdd"].iloc[first_indices],
+            self.cosmics_intensity_spectrum["yyyymmdd"].iloc[first_indices],
             format="%Y%m%d",
         )
 

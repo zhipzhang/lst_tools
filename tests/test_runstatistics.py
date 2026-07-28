@@ -15,11 +15,11 @@ def sample_tables():
             "flatfield": [1.0, 1.1, 2.0, 2.1, 3.0, 3.1],
         }
     )
-    cosmic_intensity_spectrum = pd.DataFrame(
+    cosmics_intensity_spectrum = pd.DataFrame(
         {
             "runnumber": [1, 1, 2, 2, 3, 3],
             "yyyymmdd": [20240101, 20240101, 20240102, 20240102, 20240103, 20240103],
-            "cosmic_intensity": [10.0, 12.0, 20.0, 22.0, 30.0, 32.0],
+            "cosmics_intensity": [10.0, 12.0, 20.0, 22.0, 30.0, 32.0],
         }
     )
     runsummary = pd.DataFrame(
@@ -31,7 +31,7 @@ def sample_tables():
     )
     return DataCheckTables(
         flatfield=flatfield,
-        cosmic_intensity_spectrum=cosmic_intensity_spectrum,
+        cosmics_intensity_spectrum=cosmics_intensity_spectrum,
         runsummary=runsummary,
     )
 
@@ -39,9 +39,9 @@ def sample_tables():
 def test_from_tables_mean_and_std(sample_tables):
     """from_tables should compute mean and std per runnumber."""
     spec = {
-        "cosmic_intensity_spectrum": {
-            "mean_intensity": ("cosmic_intensity", "mean"),
-            "std_intensity": ("cosmic_intensity", "std"),
+        "cosmics_intensity_spectrum": {
+            "mean_intensity": ("cosmics_intensity", "mean"),
+            "std_intensity": ("cosmics_intensity", "std"),
         },
     }
 
@@ -80,12 +80,12 @@ def test_from_tables_outer_join(sample_tables):
     # Remove run 3 from runsummary so we can test outer join behavior.
     tables = DataCheckTables(
         flatfield=sample_tables.flatfield,
-        cosmic_intensity_spectrum=sample_tables.cosmic_intensity_spectrum,
+        cosmics_intensity_spectrum=sample_tables.cosmics_intensity_spectrum,
         runsummary=sample_tables.runsummary[sample_tables.runsummary["runnumber"] != 3].reset_index(drop=True),
     )
     spec = {
-        "cosmic_intensity_spectrum": {
-            "mean_intensity": ("cosmic_intensity", "mean"),
+        "cosmics_intensity_spectrum": {
+            "mean_intensity": ("cosmics_intensity", "mean"),
         },
         "runsummary": {
             "first_source": ("source_name", "first"),
@@ -102,8 +102,8 @@ def test_from_tables_outer_join(sample_tables):
 def test_select_subset(sample_tables):
     """select should return a new RunStatistics with only the masked runs."""
     spec = {
-        "cosmic_intensity_spectrum": {
-            "mean_intensity": ("cosmic_intensity", "mean"),
+        "cosmics_intensity_spectrum": {
+            "mean_intensity": ("cosmics_intensity", "mean"),
         },
     }
     stats = RunStatistics.from_tables(sample_tables, spec=spec)
