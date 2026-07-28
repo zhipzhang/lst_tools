@@ -8,6 +8,8 @@ import pandas as pd
 
 def find_mode(data, binwidth=0.15, sliding_step=None, return_fraction=False):
     data = data[~np.isnan(data)]
+    if len(data) == 0:
+        return np.nan
     min = np.nanmin(data)
     max = np.nanmax(data)
     if np.isnan(min) or np.isnan(max):
