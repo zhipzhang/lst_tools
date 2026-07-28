@@ -1,3 +1,4 @@
+import logging
 from dataclasses import dataclass, replace
 from typing import Iterable, List
 
@@ -34,6 +35,15 @@ class DataCheckTables:
 
         for file in files:
             with pd.HDFStore(file, mode="r") as store:
+                available = set(store.keys())
+                missing = [name for name in table_names if f"/{name}" not in available]
+                if missing:
+                    logging.warning(
+                        "Skipping %s: missing table(s) %s",
+                        file,
+                        ", ".join(f"/{name}" for name in missing),
+                    )
+                    continue
                 for name in table_names:
                     table_data[name].append(store[f"/{name}"])
 
