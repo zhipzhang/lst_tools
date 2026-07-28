@@ -42,8 +42,8 @@ def find_mode(data, binwidth=0.15, sliding_step=None, return_fraction=False):
 
 
 def zenith_angle_mean(zenith_angles):
-    cos = np.cos(zenith_angles * u.deg)  # pyright: ignore
-    sin = np.sin(zenith_angles * u.deg)  # pyright: ignore
+    cos = np.cos(np.deg2rad(zenith_angles))  # pyright: ignore
+    sin = np.sin(np.deg2rad(zenith_angles))  # pyright: ignore
     mean_zenith = np.arctan2(np.nanmean(sin), np.nanmean(cos))
     if mean_zenith < 0:
         mean_zenith += 2 * np.pi
