@@ -45,13 +45,13 @@ def zenith_angle_mean(zenith_angles):
     mean_zenith = np.arctan2(np.nanmean(sin), np.nanmean(cos))
     if mean_zenith < 0:
         mean_zenith += 2 * np.pi
-    return mean_zenith.to_value(u.deg)  # pyright: ignore
+    return np.degrees(mean_zenith)  # pyright: ignore
 
 
 DEFAULT_SPEC = {
     "cosmics_intensity_spectrum": {
-        "n_subruns": ("run_number", "size"),
-        "date": ("YYYYMMDD", "first"),
+        "n_subruns": ("runnumber", "size"),
+        "date": ("yyyymmdd", "first"),
         "mean_R422": ("ZD_corrected_cosmics_rate_at_422_pe", "mean"),
         "std_R422": ("ZD_corrected_cosmics_rate_at_422_pe", "std"),
         "mode_R422": ("ZD_corrected_cosmics_rate_at_422_pe", lambda x: find_mode(x)),
@@ -74,7 +74,7 @@ DEFAULT_SPEC = {
         "mean_cos_zd": ("cos_zenith", "mean"),
         "mean_diffuse_nsb_std": ("diffuse_nsb_std", "mean"),
     },
-    "run_summary": {
+    "runsummary": {
         "n_flatfield": ("num_flatfield", "first"),
         "n_pedestals": ("num_pedestals", "first"),
     },
