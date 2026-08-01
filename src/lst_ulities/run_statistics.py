@@ -1,7 +1,6 @@
 from dataclasses import dataclass
 from functools import reduce
 
-import astropy.units as u
 import numpy as np
 import pandas as pd
 
@@ -103,3 +102,8 @@ class RunStatistics:
     @property
     def run_numbers(self) -> pd.Index:
         return self.df.index
+
+    def __getitem__(self, column: str) -> pd.Series:  # pyright: ignore
+        if column not in self.df.columns:
+            raise KeyError(f"Column '{column}' not found")
+        return self.df[column]  # type: ignore[no-any-return]

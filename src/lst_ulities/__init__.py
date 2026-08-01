@@ -4,10 +4,10 @@ from importlib.metadata import PackageNotFoundError, version
 
 from .datacheck import DataCheckTables
 from .datafilter import DataFilter
-from .helper import glob_files
+from .helper import glob_files, plot_histogram
 from .run_statistics import RunStatistics
 
-__all__ = ["DataCheckTables", "DataFilter", "glob_files", "RunStatistics"]
+__all__ = ["DataCheckTables", "DataFilter", "glob_files", "plot_histogram", "RunStatistics"]
 
 try:
     __version__ = version("lst_ulities")

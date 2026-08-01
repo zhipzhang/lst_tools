@@ -1,10 +1,12 @@
 from dataclasses import dataclass
 
 import astropy.units as u
+import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
 from astropy.coordinates import SkyCoord
 
+from .helper import init_plot, plot_histogram
 from .run_statistics import RunStatistics
 
 CRAB_NEBULA = SkyCoord.from_name("Crab Nebula")
@@ -90,3 +92,61 @@ class DataFilter:
         """
         mask = self.mask(statistics.df, advanced_cuts=advanced_cuts)
         return statistics.select(mask)
+
+    def plot_advanced_cuts(self, statistics: RunStatistics):
+        """Draw all advanced-cut distributions on a single 3×2 figure."""
+        init_plot()
+        statistics_after_basic_cut = self(statistics, advanced_cuts=False)
+
+        fig, axes = plt.subplots(3, 2, figsize=(10, 11), constrained_layout=True)
+        axes = axes.flatten()
+
+        plot_histogram(
+            statistics_after_basic_cut["mean_diffuse_nsb_std"],
+            max=self.max_diffuse_nsb_std,
+            ax=axes[0],
+            xlabel="mean diffuse NSB std",
+            title="mean_diffuse_nsb_std",
+        )
+        plot_histogram(
+            statistics_after_basic_cut["mean_intensity_threshold"],
+            max=self.max_intensity_at_half_peak_rate,
+            ax=axes[1],
+            xlabel="mean intensity threshold",
+            title="mean_intensity_threshold",
+        )
+
+        p_value_in_sigma = (statistics_after_basic_cut["mean_fit_p_value"] - 0.5) * np.sqrt(
+            12 * statistics_after_basic_cut["n_subruns"]
+        )
+        plot_histogram(
+            p_value_in_sigma,
+            min=self.min_mean_fit_p,
+            ax=axes[2],
+            xlabel="mean fit p-value (#sigma)",
+            title="mean_fit_p_value",
+        )
+        plot_histogram(
+            statistics_after_basic_cut["mean_index"],
+            min=self.min_drdi_index,
+            max=self.max_drdi_index,
+            ax=axes[3],
+            xlabel="mean DRDI index",
+            title="mean_index",
+        )
+        plot_histogram(
+            statistics_after_basic_cut["mean_R422"],
+            min=self.min_drdi_at_422pe,
+            ax=axes[4],
+            xlabel="mean R422",
+            title="mean_R422",
+        )
+        plot_histogram(
+            statistics_after_basic_cut["fraction_around_mode_R422"],
+            min=self.min_fraction_around_mode,
+            ax=axes[5],
+            xlabel="fraction around mode R422",
+            title="fraction_around_mode_R422",
+        )
+
+        return fig, axes
