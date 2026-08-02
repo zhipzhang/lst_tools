@@ -120,22 +120,40 @@ def _filter_table_by_region(table: Table, center: SkyCoord, radius: u.Quantity) 
     return table[mask]
 
 
+def _scatter_sky(ax: plt.Axes, ra: u.Quantity, dec: u.Quantity, **kwargs):
+    """Scatter points that may be defined on a WCSAxes.
+
+    ``ra`` and ``dec`` are interpreted as ICRS degrees.  If ``ax`` is a
+    WCSAxes, the ICRS-to-pixel transform is applied automatically so the
+    sources land on the correct image pixels.  For plain matplotlib axes the
+    values are plotted directly.
+    """
+    try:
+        transform = ax.get_transform("icrs")
+    except (AttributeError, ValueError):
+        transform = None
+    ax.scatter(ra, dec, transform=transform, **kwargs)
+
+
 def plot_lhaaso_catalog(ax: plt.Axes, center: SkyCoord, radius: u.Quantity):
     """Plot LHAASO 1LHAASO sources within ``radius`` of ``center``.
 
     KM2A and WCDA detections are shown with their own colors and markers.
+    Works on both plain matplotlib axes and WCSAxes.
     """
     km2a_in_region = _filter_table_by_region(km2a_catalog, center, radius)
     wcda_in_region = _filter_table_by_region(wcda_catalog, center, radius)
 
     if len(km2a_in_region) > 0:
-        ax.scatter(
+        _scatter_sky(
+            ax,
             km2a_in_region["ra"],
             km2a_in_region["dec"],
             **CATALOG_STYLES["lhaaso_km2a"],
         )
     if len(wcda_in_region) > 0:
-        ax.scatter(
+        _scatter_sky(
+            ax,
             wcda_in_region["ra"],
             wcda_in_region["dec"],
             **CATALOG_STYLES["lhaaso_wcda"],
@@ -143,33 +161,42 @@ def plot_lhaaso_catalog(ax: plt.Axes, center: SkyCoord, radius: u.Quantity):
 
 
 def plot_fermi_catalog(ax: plt.Axes, center: SkyCoord, radius: u.Quantity):
-    """Plot Fermi-LAT 4FGL sources within ``radius`` of ``center``."""
+    """Plot Fermi-LAT 4FGL sources within ``radius`` of ``center``.
+
+    Works on both plain matplotlib axes and WCSAxes.
+    """
     fermi_catalog = SourceCatalog4FGL()
     coords = SkyCoord(ra=fermi_catalog.table["RAJ2000"], dec=fermi_catalog.table["DEJ2000"], unit="deg")
     mask = coords.separation(center) <= radius
     table = fermi_catalog.table[mask]
 
     if len(table) > 0:
-        ax.scatter(table["RAJ2000"], table["DEJ2000"], **CATALOG_STYLES["fermi"])
+        _scatter_sky(ax, table["RAJ2000"], table["DEJ2000"], **CATALOG_STYLES["fermi"])
 
 
 def plot_hawc_catalog(ax: plt.Axes, center: SkyCoord, radius: u.Quantity):
-    """Plot HAWC 3HWC sources within ``radius`` of ``center``."""
+    """Plot HAWC 3HWC sources within ``radius`` of ``center``.
+
+    Works on both plain matplotlib axes and WCSAxes.
+    """
     hawc_catalog = SourceCatalog3HWC()
     coords = SkyCoord(ra=hawc_catalog.table["ra"], dec=hawc_catalog.table["dec"], unit="deg")
     mask = coords.separation(center) <= radius
     table = hawc_catalog.table[mask]
 
     if len(table) > 0:
-        ax.scatter(table["ra"], table["dec"], **CATALOG_STYLES["hawc"])
+        _scatter_sky(ax, table["ra"], table["dec"], **CATALOG_STYLES["hawc"])
 
 
 def plot_hess_catalog(ax: plt.Axes, center: SkyCoord, radius: u.Quantity):
-    """Plot HESS HGPS sources within ``radius`` of ``center``."""
+    """Plot HESS HGPS sources within ``radius`` of ``center``.
+
+    Works on both plain matplotlib axes and WCSAxes.
+    """
     hess_catalog = SourceCatalogHGPS()
     coords = SkyCoord(ra=hess_catalog.table["RAJ2000"], dec=hess_catalog.table["DEJ2000"], unit="deg")
     mask = coords.separation(center) <= radius
     table = hess_catalog.table[mask]
 
     if len(table) > 0:
-        ax.scatter(table["RAJ2000"], table["DEJ2000"], **CATALOG_STYLES["hess"])
+        _scatter_sky(ax, table["RAJ2000"], table["DEJ2000"], **CATALOG_STYLES["hess"])
