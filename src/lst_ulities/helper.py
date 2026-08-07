@@ -161,3 +161,67 @@ def plot_histogram(
     )
 
     return fig, ax
+
+
+POSSIBLE_PATH = ("/fefs/aswg/data/real", "/fefs/onsite/data/lst-pipe/LSTN-01")
+
+
+def find_lst_data_path(date: int, run_number: int, level="dl1"):
+    import warnings
+
+    level = level.upper()
+    if level not in ["DL1", "DL2"]:
+        raise ValueError(f"Invalid level: {level}. Must be 'DL1' or 'DL2'.")
+    file_name = f"{level.lower()}_LST_1.Run{run_number:05d}.h5"
+
+    matched_files = []
+    for path in POSSIBLE_PATH:
+        prefix_path = f"{path}/{level}/{date}"
+        matched_files.extend(glob.glob(f"{prefix_path}/**/{file_name}", recursive=True))
+
+    if len(matched_files) == 0:
+        warnings.warn(
+            f"No file found for {file_name} under any of {POSSIBLE_PATH}",
+            stacklevel=2,
+        )
+        raise FileNotFoundError(f"No file found for {file_name}")
+
+    if len(matched_files) > 1:
+        warnings.warn(
+            f"Multiple files found for {file_name}: {matched_files}",
+            stacklevel=2,
+        )
+        raise ValueError(f"Expected exactly one file for {file_name}, found {len(matched_files)}: {matched_files}")
+
+    return matched_files[0]
+
+
+def find_lst_subrun_files(date: int, run_number: int, level="dl1") -> list[str]:
+    """Find subrun files for a given run, e.g. dl1_LST-1.Run20752.0044.h5.
+
+    The glob pattern ``????.h5`` matches exactly 4-digit subrun suffixes,
+    so plain run-summary files (e.g. dl1_LST-1.Run20752.h5) are never returned.
+
+    Returns a sorted list of matching subrun file paths (may be empty).
+    """
+    import warnings
+
+    level = level.upper()
+    if level not in ["DL1", "DL2"]:
+        raise ValueError(f"Invalid level: {level}. Must be 'DL1' or 'DL2'.")
+
+    # ????.h5 matches exactly 4-character subrun numbers (e.g. 0044), not plain .h5
+    pattern = f"{level.lower()}_LST-1.Run{run_number:05d}.????.h5"
+
+    matched_files = []
+    for path in POSSIBLE_PATH:
+        prefix_path = f"{path}/{level}/{date}"
+        matched_files.extend(glob.glob(f"{prefix_path}/**/{pattern}", recursive=True))
+
+    if len(matched_files) == 0:
+        warnings.warn(
+            f"No subrun files found for Run{run_number:05d} under any of {POSSIBLE_PATH}",
+            stacklevel=2,
+        )
+
+    return sorted(matched_files)
