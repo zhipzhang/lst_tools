@@ -83,5 +83,4 @@ Thumbs.db
 # Project-specific data / outputs
 data/
 outputs/
-*.h5
 *.fits

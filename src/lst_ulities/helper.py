@@ -172,7 +172,7 @@ def find_lst_data_path(date: int, run_number: int, level="dl1"):
     level = level.upper()
     if level not in ["DL1", "DL2"]:
         raise ValueError(f"Invalid level: {level}. Must be 'DL1' or 'DL2'.")
-    file_name = f"{level.lower()}_LST_1.Run{run_number:05d}.h5"
+    file_name = f"{level.lower()}_LST-1.Run{run_number:05d}.h5"
 
     matched_files = []
     for path in POSSIBLE_PATH:
