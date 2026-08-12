@@ -101,6 +101,7 @@ class DataFilter:
         sources = load_hess_sources() + load_lhaaso_sources() + load_hawc_sources()
         for source in sources:
             pointing_mask &= pointing.separation(source.coord) > min_distance * u.deg
+        pointing_mask &= np.abs(pointing.galactic.b) > 10 * u.deg
         quality_cuts &= pointing_mask
         return statistics.select(quality_cuts)
 

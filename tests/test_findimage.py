@@ -1,7 +1,8 @@
-import path
+import pathlib
+
 import pytest
 
-IS_LAPLAMA_SERVER = path.Path("/fefs/aswg/data/real").exists()
+IS_LAPLAMA_SERVER = pathlib.Path("/fefs/aswg/data/real").exists()
 from lst_ulities.helper import find_lst_data_path
 
 

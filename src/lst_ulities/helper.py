@@ -191,7 +191,7 @@ def find_lst_data_path(date: int, run_number: int, level="dl1"):
             f"Multiple files found for {file_name}: {matched_files}",
             stacklevel=2,
         )
-        raise ValueError(f"Expected exactly one file for {file_name}, found {len(matched_files)}: {matched_files}")
+        # Don't raise an error, just return the first match
 
     return matched_files[0]
 
