@@ -42,6 +42,19 @@ class DataFilter:
         "pointing_dec_std",
     ]
 
+    QUALITY_CUTS = [
+        "n_subruns",
+        "have_flatfield",
+        "have_pedestal",
+        "pointing_dec_std",
+        "nsb_std",
+        "intensity_threshold",
+        "fit_p_value",
+        "drdi_index",
+        "drdi_at_422pe",
+        "fraction_around_mode",
+    ]
+
     def cut_masks(self, df: pd.DataFrame, advanced_cuts: bool = False) -> pd.DataFrame:
         """Return the active boolean cut masks.
 
@@ -73,6 +86,23 @@ class DataFilter:
             index=df.index,
         )
         return masks if advanced_cuts else masks[self.BASIC_CUTS]  # pyright: ignore
+
+    def filter_good_offruns(self, statistics: RunStatistics, min_distance: float = 3.0) -> RunStatistics:
+        """
+        This is a helper function that filter those runs with good quality and far away from the Catalog Sources
+        """
+        df = statistics.df
+        quality_cuts = (self.cut_masks(df, advanced_cuts=True)[self.QUALITY_CUTS]).all(axis=1)
+        from .catalog import load_hawc_sources, load_hess_sources, load_lhaaso_sources
+
+        pointing = SkyCoord(ra=df["mean_ra"].to_numpy() * u.deg, dec=df["mean_dec"].to_numpy() * u.deg)
+
+        pointing_mask = np.ones(len(df), dtype=bool)
+        sources = load_hess_sources() + load_lhaaso_sources() + load_hawc_sources()
+        for source in sources:
+            pointing_mask &= pointing.separation(source.coord) > min_distance * u.deg
+        quality_cuts &= pointing_mask
+        return statistics.select(quality_cuts)
 
     def mask(self, df: pd.DataFrame, advanced_cuts: bool = False) -> pd.Series:
         """Return a boolean mask for the given run-statistics DataFrame."""
