@@ -88,7 +88,7 @@ class DataFilter:
         return masks if advanced_cuts else masks[self.BASIC_CUTS]  # pyright: ignore
 
     def filter_good_offruns(
-        self, statistics: RunStatistics, min_distance: float = 3.0, min_galactic_b: float = 10
+        self, statistics: RunStatistics, min_extra_distance: float = 3.0, min_galactic_b: float = 10
     ) -> RunStatistics:
         """
         This is a helper function that filter those runs with good quality and far away from the Catalog Sources
@@ -102,7 +102,8 @@ class DataFilter:
         pointing_mask = np.ones(len(df), dtype=bool)
         sources = load_hess_sources() + load_lhaaso_sources() + load_hawc_sources()
         for source in sources:
-            pointing_mask &= pointing.separation(source.coord) > min_distance * u.deg
+            min_distance = 2.5 * source.extension if source.extension is not None else 0
+            pointing_mask &= pointing.separation(source.coord) > (min_distance + min_extra_distance) * u.deg
         pointing_mask &= np.abs(pointing.galactic.b) > min_galactic_b * u.deg
         quality_cuts &= pointing_mask
         return statistics.select(quality_cuts)
