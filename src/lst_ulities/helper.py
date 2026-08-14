@@ -188,7 +188,7 @@ def find_lst_data_path(date: int, run_number: int, level="dl1"):
         )
         raise FileNotFoundError(f"No file found for {file_name}")
 
-    if level == "DL3" and len(matched_files) > 1:
+    if level == "DL3":
         # For DL3, we may have multiple files
         return matched_files
 

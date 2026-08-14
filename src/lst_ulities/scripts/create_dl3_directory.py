@@ -18,7 +18,7 @@ def main():
     # Create the DL3 directory structure
     input_file = args.input
     df = pd.read_hdf(input_file, key="good_run_statistics")
-    run_stat = RunStatistics(df=df)
+    run_stat = RunStatistics(df=pd.DataFrame(df))
 
     run_number_list = run_stat.run_numbers
     date = run_stat["date"].astype("int")
@@ -28,11 +28,19 @@ def main():
     for irun, idate in zip(run_number_list, date):
         dl3_file_path = find_lst_data_path(idate, irun, level="dl3")
         for dl3_file in dl3_file_path:
-            upper_dir = Path(dl3_file).parent.name
+            split_level = dl3_file.split("/")
+            upper_dir = "/".join(split_level[-6:-1])  # Get the directory name three levels up
             output_dir = Path(args.output) / upper_dir
             os.makedirs(output_dir, exist_ok=True)
-            os.symlink(dl3_file, output_dir / Path(dl3_file).name)
-            file_count[upper_dir] += 1
+            try:
+                os.symlink(dl3_file, output_dir / Path(dl3_file).name)
+                file_count[upper_dir] += 1
+            except OSError as e:
+                print(f"Error creating symlink for run {irun}, date {idate}, file {dl3_file}")
+                print(f"  Error details: {e}")
+                print(f"  Output directory: {output_dir}")
+                print(f"  Skipping this file.")
+                continue
 
     # Print summary: how many files in each output directory
     print("Summary of files per output directory:")
