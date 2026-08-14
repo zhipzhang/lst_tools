@@ -18,6 +18,9 @@ dependencies = [
     "ctapipe",
 ]
 
+[project.scripts]
+create-dl3-directory = "lst_ulities.scripts.create_dl3_directory:main"
+
 [project.optional-dependencies]
 dev = [
     "pytest",
