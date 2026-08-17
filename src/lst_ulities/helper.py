@@ -163,7 +163,7 @@ def plot_histogram(
     return fig, ax
 
 
-POSSIBLE_PATH = ("/fefs/aswg/data/real", "/fefs/onsite/data/lst-pipe/LSTN-01")
+POSSIBLE_PATH = ("/fefs/onsite/data/lst-pipe/LSTN-01", "/fefs/aswg/data/real")
 
 
 def find_lst_data_path(date: int, run_number: int, level="dl1"):
@@ -186,7 +186,7 @@ def find_lst_data_path(date: int, run_number: int, level="dl1"):
             f"No file found for {file_name} under any of {POSSIBLE_PATH}",
             stacklevel=2,
         )
-        raise FileNotFoundError(f"No file found for {file_name}")
+        return None
 
     if level == "DL3":
         # For DL3, we may have multiple files
