@@ -20,6 +20,7 @@ dependencies = [
 
 [project.scripts]
 create-dl3-directory = "lst_ulities.scripts.create_dl3_directory:main"
+create-dl2-directory = "lst_ulities.scripts.create_dl2_directory:main"
 
 [project.optional-dependencies]
 dev = [
