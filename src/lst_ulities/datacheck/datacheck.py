@@ -49,6 +49,16 @@ class DataCheckTables:
 
         return cls(**{name: pd.concat(dataframes, ignore_index=True) for name, dataframes in table_data.items()})
 
+    def save_to_h5file(self, file: str) -> None:
+        """Append all DataCheck tables to an HDF5 file.
+
+        Creates the file when it does not exist. Existing tables are preserved
+        and new rows are appended when present.
+        """
+        with pd.HDFStore(file, mode="a") as store:
+            for name in self.__dataclass_fields__:
+                store.append(name, getattr(self, name))
+
     def describe(self) -> None:
         """Print a summary of the loaded runs.
 

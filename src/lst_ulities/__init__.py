@@ -2,10 +2,8 @@
 
 from importlib.metadata import PackageNotFoundError, version
 
-from .datacheck import DataCheckTables
-from .datafilter import DataFilter
+from .datacheck import DataCheckTables, DataFilter, RunStatistics
 from .helper import glob_files, plot_histogram
-from .run_statistics import RunStatistics
 
 __all__ = ["DataCheckTables", "DataFilter", "glob_files", "plot_histogram", "RunStatistics"]
 

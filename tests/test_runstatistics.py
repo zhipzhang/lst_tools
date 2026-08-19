@@ -2,8 +2,7 @@ import numpy as np
 import pandas as pd
 import pytest
 
-from lst_ulities.datacheck import DataCheckTables
-from lst_ulities.run_statistics import RunStatistics
+from lst_ulities.datacheck import DataCheckTables, RunStatistics
 
 
 @pytest.fixture

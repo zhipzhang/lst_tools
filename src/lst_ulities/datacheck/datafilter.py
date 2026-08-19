@@ -6,7 +6,7 @@ import numpy as np
 import pandas as pd
 from astropy.coordinates import SkyCoord
 
-from .helper import init_plot, plot_histogram
+from ..helper import init_plot, plot_histogram
 from .run_statistics import RunStatistics
 
 CRAB_NEBULA = SkyCoord.from_name("Crab Nebula")
@@ -95,16 +95,16 @@ class DataFilter:
         """
         df = statistics.df
         quality_cuts = (self.cut_masks(df, advanced_cuts=True)[self.QUALITY_CUTS]).all(axis=1)
-        from .catalog import load_hawc_sources, load_hess_sources, load_lhaaso_sources
+        from ..catalog import load_hawc_sources, load_hess_sources, load_lhaaso_sources
 
-        pointing = SkyCoord(ra=df["mean_ra"].to_numpy() * u.deg, dec=df["mean_dec"].to_numpy() * u.deg)
+        pointing = SkyCoord(ra=df["mean_ra"].to_numpy() * u.Unit("deg"), dec=df["mean_dec"].to_numpy() * u.Unit("deg"))
 
         pointing_mask = np.ones(len(df), dtype=bool)
         sources = load_hess_sources() + load_lhaaso_sources() + load_hawc_sources()
         for source in sources:
-            min_distance = 2.5 * source.extension.to_value(u.deg) if source.extension is not None else 0
-            pointing_mask &= pointing.separation(source.coord) > (min_distance + min_extra_distance) * u.deg
-        pointing_mask &= np.abs(pointing.galactic.b) > min_galactic_b * u.deg
+            min_distance = 2.5 * source.extension.to_value("deg") if source.extension is not None else 0
+            pointing_mask &= pointing.separation(source.coord) > (min_distance + min_extra_distance) * u.Unit("deg")
+        pointing_mask &= np.abs(pointing.galactic.b) > min_galactic_b * u.Unit("deg")
         quality_cuts &= pointing_mask
         return statistics.select(quality_cuts)
 

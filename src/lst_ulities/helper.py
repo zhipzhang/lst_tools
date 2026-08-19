@@ -172,9 +172,9 @@ def find_lst_data_path(date: int, run_number: int, level="dl1"):
     level = level.upper()
     if level not in ["DL1", "DL2", "DL3"]:
         raise ValueError(f"Invalid level: {level}. Must be 'DL1', 'DL2', or 'DL3'.")
-    file_name = f"{level.lower()}_LST-1.Run{run_number:05d}.h5"
-    if level == "DL3":
-        file_name = f"{level.lower()}_LST-1.Run{run_number:05d}.fits"
+
+    ext = "fits" if level == "DL3" else "h5"
+    file_name = f"{level.lower()}_LST-1.Run{run_number:05d}.{ext}"
 
     matched_files = []
     for path in POSSIBLE_PATH:
@@ -186,18 +186,17 @@ def find_lst_data_path(date: int, run_number: int, level="dl1"):
             f"No file found for {file_name} under any of {POSSIBLE_PATH}",
             stacklevel=2,
         )
-        return None
+        return None if level != "DL3" else []
 
     if level == "DL3":
-        # For DL3, we may have multiple files
         return matched_files
 
+    # DL1 / DL2: exactly one file expected
     if len(matched_files) > 1:
         warnings.warn(
-            f"Multiple files found for {file_name}: {matched_files}",
+            f"Multiple files found for {file_name}: {matched_files}. Returning the first one.",
             stacklevel=2,
         )
-        # Don't raise an error, just return the first match
     return matched_files[0]
 
 

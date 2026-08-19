@@ -5,8 +5,8 @@ from pathlib import Path
 
 import pandas as pd
 
+from ..datacheck import RunStatistics
 from ..helper import find_lst_data_path
-from ..run_statistics import RunStatistics
 
 
 def main():

@@ -96,6 +96,13 @@ class RunStatistics:
         merged = reduce(lambda a, b: a.join(b, how="outer"), per_table)
         return cls(merged.sort_index())
 
+    @classmethod
+    def from_file(cls, filename: str, key: str = "run_statistics") -> "RunStatistics":
+        return cls(pd.read_hdf(filename, key=key))
+
+    def save_to_h5file(self, filename: str, key: str = "run_statistics") -> None:
+        self.df.to_hdf(filename, key=key, mode="a", append=True)
+
     def select(self, mask: pd.Series) -> "RunStatistics":
         return RunStatistics(self.df.loc[mask])
 
