@@ -3,8 +3,6 @@ import os
 from collections import Counter
 from pathlib import Path
 
-import pandas as pd
-
 from ..datacheck import RunStatistics
 from ..helper import find_lst_data_path
 
@@ -17,8 +15,7 @@ def main():
 
     # Create the DL3 directory structure
     input_file = args.input
-    df = pd.read_hdf(input_file, key="good_run_statistics")
-    run_stat = RunStatistics(df=pd.DataFrame(df))
+    run_stat = RunStatistics.from_file(input_file)
 
     run_number_list = run_stat.run_numbers
     date = run_stat["date"].astype("int")
@@ -39,7 +36,7 @@ def main():
                 print(f"Error creating symlink for run {irun}, date {idate}, file {dl3_file}")
                 print(f"  Error details: {e}")
                 print(f"  Output directory: {output_dir}")
-                print(f"  Skipping this file.")
+                print("  Skipping this file.")
                 continue
 
     # Print summary: how many files in each output directory

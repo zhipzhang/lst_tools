@@ -20,8 +20,8 @@ class DataFilter:
     last_date: int = 29990101
     min_angle_to_source: float = 0.3
     max_angle_to_source: float = 0.5
-    min_cos_zenith: float = 0
-    max_cos_zenith: float = 1
+    min_zenith_angle: float = 0
+    max_zenith_angle: float = 90
     max_pointing_dec_std: float = 0.01  # degrees
 
     max_diffuse_nsb_std: float = 2.3
@@ -65,6 +65,8 @@ class DataFilter:
         source = SkyCoord(ra=self.source_ra * u.deg, dec=self.source_dec * u.deg)  # pyright: ignore
         offset_angle = pointing.separation(source).to_value("deg")
         p_value_in_sigma = (df["mean_fit_p_value"] - 0.5) * np.sqrt(12 * df["n_subruns"])
+        min_cos_zenith = np.cos(np.radians(self.max_zenith_angle))
+        max_cos_zenith = np.cos(np.radians(self.min_zenith_angle))
 
         masks = pd.DataFrame(
             {
@@ -74,7 +76,7 @@ class DataFilter:
                 "have_pedestal": df["n_pedestals"] >= 1,
                 "angle_to_source": (offset_angle >= self.min_angle_to_source)  # pyright: ignore
                 & (offset_angle <= self.max_angle_to_source),  # pyright: ignore
-                "cos_zenith": df["mean_cos_zd"].between(self.min_cos_zenith, self.max_cos_zenith),
+                "cos_zenith": df["mean_cos_zd"].between(min_cos_zenith, max_cos_zenith),
                 "pointing_dec_std": df["std_dec"] <= self.max_pointing_dec_std,
                 "nsb_std": df["mean_diffuse_nsb_std"] <= self.max_diffuse_nsb_std,
                 "intensity_threshold": ~(df["mean_intensity_threshold"] > self.max_intensity_at_half_peak_rate),

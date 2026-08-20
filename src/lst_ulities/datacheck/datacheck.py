@@ -1,5 +1,6 @@
 import logging
 from dataclasses import dataclass, replace
+from pathlib import Path
 from typing import Iterable, List
 
 import numpy as np
@@ -49,15 +50,19 @@ class DataCheckTables:
 
         return cls(**{name: pd.concat(dataframes, ignore_index=True) for name, dataframes in table_data.items()})
 
-    def save_to_h5file(self, file: str) -> None:
-        """Append all DataCheck tables to an HDF5 file.
+    def save_to_h5file(self, file: str | Path, overwrite: bool = False) -> None:
+        """Save all DataCheck tables to an HDF5 file.
 
-        Creates the file when it does not exist. Existing tables are preserved
-        and new rows are appended when present.
+        By default existing tables are preserved and new rows are appended.
+        Set ``overwrite=True`` to replace the complete file.
         """
-        with pd.HDFStore(file, mode="a") as store:
+        mode = "w" if overwrite else "a"
+        with pd.HDFStore(file, mode=mode) as store:
             for name in self.__dataclass_fields__:
-                store.append(name, getattr(self, name))
+                if overwrite:
+                    store.put(name, getattr(self, name), format="table")
+                else:
+                    store.append(name, getattr(self, name))
 
     def describe(self) -> None:
         """Print a summary of the loaded runs.

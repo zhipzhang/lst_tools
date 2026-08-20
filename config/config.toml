@@ -1,0 +1,47 @@
+# Example for lst_ulities configuration file
+# We use TOML format.
+
+[source]
+ra = 83.632
+dec = 22.0145
+name = "Crab Nebula"
+
+# This will create a directory which will contain the link to data files
+[initialization]
+dl1 = true
+dl2 = true
+data_check = true
+
+# Runs are grouped into left-closed bins, with the final upper edge included.
+[zenith_binning]
+edges_deg = [0.0, 20.0, 30.0, 40.0, 50.0, 60.0, 70.0]
+
+[data_filter]
+# advanced cuts means the cuts derived from cosmic ray intensity spectrum and others
+# this could be derived later ?
+with_advanced = false
+[data_filter.basic_cuts]
+min_angle_to_source = 0.3       # deg
+max_angle_to_source = 0.5       # deg
+first_date = 0
+last_date = 20999999
+max_pointing_dec_std = 0.01 # pointing stability
+
+[dl3]
+enabled = true
+cut_configs = ["gheff0.7_thetacont0.7", "gheff0.9_thetacont0.7"]
+
+[[dl3.products]]
+name = "point"
+analysis_type = "point"
+background_type = "ring-wobble"
+
+[[dl3.products]]
+name = "full_ring"
+analysis_type = "full-enclosure"
+background_type = "ring-wobble"
+
+[[dl3.products]]
+name = "full_diffuse"
+analysis_type = "full-enclosure"
+background_type = "diffuse"

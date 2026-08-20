@@ -5,6 +5,36 @@ import numpy as np
 import pandas as pd
 
 
+def validate_zenith_bin_edges(edges_deg) -> tuple[float, ...]:
+    """Validate and normalize zenith-angle bin edges in degrees."""
+    edges = np.asarray(edges_deg, dtype=float)
+
+    if edges.ndim != 1 or len(edges) < 2:
+        raise ValueError("zenith binning requires at least two edges")
+    if not np.all(np.isfinite(edges)):
+        raise ValueError("zenith bin edges must be finite")
+    if np.any(np.diff(edges) <= 0):
+        raise ValueError("zenith bin edges must be strictly increasing")
+    if edges[0] < 0 or edges[-1] > 90:
+        raise ValueError("zenith bin edges must be within [0, 90] degrees")
+
+    return tuple(float(edge) for edge in edges)
+
+
+def _format_zenith_edge(edge: float) -> str:
+    """Format an edge for a filesystem-safe, readable bin name."""
+    return f"{edge:g}".replace(".", "p")
+
+
+def zenith_bin_labels(edges_deg) -> tuple[str, ...]:
+    """Return stable labels for consecutive zenith-angle bin edges."""
+    edges = validate_zenith_bin_edges(edges_deg)
+    return tuple(
+        f"zd_{_format_zenith_edge(low)}_{_format_zenith_edge(high)}"
+        for low, high in zip(edges[:-1], edges[1:])
+    )
+
+
 def find_mode(data, binwidth=0.15, sliding_step=None, return_fraction=False):
     data = data[~np.isnan(data)]
     if len(data) == 0:
@@ -100,11 +130,45 @@ class RunStatistics:
     def from_file(cls, filename: str, key: str = "run_statistics") -> "RunStatistics":
         return cls(pd.read_hdf(filename, key=key))
 
-    def save_to_h5file(self, filename: str, key: str = "run_statistics") -> None:
-        self.df.to_hdf(filename, key=key, mode="a", append=True)
+    def save_to_h5file(self, filename, key: str = "run_statistics", overwrite: bool = False) -> None:
+        if overwrite:
+            self.df.to_hdf(filename, key=key, mode="w", format="table")
+        else:
+            self.df.to_hdf(filename, key=key, mode="a", append=True)
 
     def select(self, mask: pd.Series) -> "RunStatistics":
         return RunStatistics(self.df.loc[mask])
+
+    def assign_zenith_bins(self, edges_deg) -> "RunStatistics":
+        """Return a copy with run-wise zenith angle and bin columns.
+
+        Bins are left-closed and right-open, except for the final bin, which
+        includes its upper edge. Runs outside the configured range, and runs
+        without a finite ``mean_cos_zd``, receive a missing bin value.
+        """
+        edges = validate_zenith_bin_edges(edges_deg)
+        labels = zenith_bin_labels(edges)
+        result = self.df.copy()
+        mean_cos_zd = result["mean_cos_zd"].clip(-1.0, 1.0)
+        zenith_angle = np.degrees(np.arccos(mean_cos_zd))
+        for edge in edges:
+            zenith_angle = zenith_angle.mask(
+                np.isclose(zenith_angle, edge, rtol=0.0, atol=1e-10),
+                edge,
+            )
+        # Use plain object strings for compatibility with pandas/PyTables HDF5.
+        assigned = pd.Series(None, index=result.index, dtype="object")
+
+        for index, (low, high, label) in enumerate(zip(edges[:-1], edges[1:], labels)):
+            if index == len(labels) - 1:
+                mask = zenith_angle.ge(low) & zenith_angle.le(high)
+            else:
+                mask = zenith_angle.ge(low) & zenith_angle.lt(high)
+            assigned.loc[mask] = label
+
+        result["mean_zenith_angle"] = zenith_angle
+        result["zenith_bin"] = assigned
+        return RunStatistics(result)
 
     @property
     def run_numbers(self) -> pd.Index:
