@@ -16,6 +16,7 @@ keywords = ["lst", "cta", "gamma-ray", "astronomy"]
 dependencies = [
     "lstchain",
     "ctapipe",
+    "packaging",
     "tables",
     "tomli; python_version < '3.11'",
 ]

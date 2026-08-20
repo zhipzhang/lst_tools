@@ -53,7 +53,9 @@ does not replace conflicting files. The selected-run HDF5 table contains both
 DL3 linking is controlled explicitly by `[dl3]` in the TOML configuration. The
 configured products are crossed with `cut_configs`, and only exact matches are
 linked. Other discovered DL3 files are ignored. Each combination is kept
-separate to avoid mixing analysis products or colliding filenames:
+separate to avoid mixing analysis products or colliding filenames. When the
+same product exists under multiple processing-version directories immediately
+before `std`, the newest semantic version is selected automatically:
 
 ```text
 dl3/
