@@ -6,7 +6,9 @@ import astropy.units as u
 import hist
 import numpy as np
 from gammapy.data import Observation, Observations
+from gammapy.makers import WobbleRegionsFinder
 from gammapy.maps import MapAxis
+from numpy.ma.extras import isin
 from regions import CircleSkyRegion
 
 
@@ -32,11 +34,11 @@ class HistogramCountsOnoff:
     def __init__(
         self,
         on_region: CircleSkyRegion,
-        off_region: Sequence[CircleSkyRegion],
+        off_region_finder: WobbleRegionsFinder | None,
         energy_axis: MapAxis | u.Quantity,
     ):
         self.on_region = on_region
-        self.off_region = tuple(off_region)
+        self.off_region_finder = off_region_finder
 
         if hasattr(energy_axis, "edges"):
             self.energy_bins = energy_axis.edges.to_value("TeV")
@@ -53,7 +55,7 @@ class HistogramCountsOnoff:
         if np.any(np.diff(self.energy_bins) <= 0):
             raise ValueError("energy_axis bin edges must be strictly increasing")
 
-        self.n_off = len(self.off_region)
+        self.n_off = off_region_finder.n_off_regions if off_region_finder is not None else 0
         self.alpha = 1.0 / self.n_off if self.n_off > 0 else 0.0
 
         self.h_on = self._make_histogram()
@@ -69,11 +71,12 @@ class HistogramCountsOnoff:
 
     def _process_observation(self, observation: Observation):
         events = observation.events
+        pointing = observation.pointing.fixed_icrs
         on_events = events.select_region(self.on_region)
         self.h_on.fill(estimated_energy=on_events.energy.to_value("TeV"))
-
-        if self.off_region:
-            off_events = events.select_region(self.off_region)
+        if self.off_region_finder is not None:
+            off_regions, wcs = self.off_region_finder.run(region=self.on_region, center=pointing)
+            off_events = events.select_region(off_regions)
             self.h_off.fill(estimated_energy=off_events.energy.to_value("TeV"))
         else:
             off_events = None
