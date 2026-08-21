@@ -3,7 +3,7 @@
 from typing import TYPE_CHECKING
 
 import numpy as np
-from hist import Hist
+from hist import Hist, storage
 
 if TYPE_CHECKING:
     from matplotlib.axes import Axes
@@ -32,13 +32,22 @@ def _excess_histogram(h_on: Hist, h_off: Hist, alpha: float) -> Hist:
         if len(histogram.axes) != 2 or names != required_axes:
             raise ValueError("h_on and h_off must have exactly the 'estimated_energy' and 'theta_squared' axes")
 
-    try:
-        excess = h_on - alpha * h_off
-    except (TypeError, ValueError) as error:
-        raise ValueError("h_on and h_off must use identical axes and Weight storage") from error
+    if any(on_axis != off_axis for on_axis, off_axis in zip(h_on.axes, h_off.axes, strict=True)):
+        raise ValueError("h_on and h_off must use identical axes")
 
-    if excess.variances(flow=False) is None:
+    if h_on.storage_type is not storage.Weight or h_off.storage_type is not storage.Weight:
         raise ValueError("h_on and h_off must track variances; use hist.storage.Weight")
+
+    if h_on.variances(flow=True) is None or h_off.variances(flow=True) is None:
+        raise ValueError("h_on and h_off must track variances; use hist.storage.Weight")
+
+    try:
+        excess = h_on.copy()
+        excess_view = excess.view(flow=True)
+        excess_view[...] = h_on.view(flow=True) - alpha * h_off.view(flow=True)
+    except (TypeError, ValueError) as error:
+        raise ValueError("h_on and h_off must use hist.storage.Weight") from error
+
     return excess
 
 
