@@ -40,7 +40,7 @@ class Dl3DataStore:
     def __getattr__(self, name):
         return getattr(self.data_store, name)
 
-    def plot_1d_angres(self):
+    def plot_1d_angres(self, title=None):
         """
         Plot the observation-time-averaged angular resolution versus energy.
         """
@@ -60,7 +60,9 @@ class Dl3DataStore:
             if energy_axis is None:
                 energy_axis = obs.rad_max.axes[0]
             angular_resolution.append(np.ravel(obs.rad_max.data))
-            effective_obs_time.append(obs.observation_time_duration.to_value("s"))
+            effective_obs_time.append(
+                obs.observation_time_duration.to_value("s")
+            )  # This includes the dead-time, but it's OK!
 
         if energy_axis is None:
             logging.warning("No observations available to plot angular resolution")
@@ -75,4 +77,6 @@ class Dl3DataStore:
         plt.xlabel("Energy (TeV)")
         plt.ylabel("Angular resolution (deg)")
         plt.xscale("log")
+        if title is not None:
+            plt.title(f"{title}")
         plt.show()

@@ -19,6 +19,7 @@ dependencies = [
     "packaging",
     "tables",
     "tomli; python_version < '3.11'",
+    "gammapy",
 ]
 
 [project.scripts]
