@@ -78,7 +78,7 @@ class OnOffCountsHistogram:
             name="theta_squared",
             label=r"$\theta^2$ [deg$^2$]",
         )
-        return hist.Hist(energy_axis, theta_squared_axis, storage=hist.storage.Int64())
+        return hist.Hist(energy_axis, theta_squared_axis, storage=hist.storage.Weight())
 
     def _process_observation(self, observation: Observation):
         events = observation.events
