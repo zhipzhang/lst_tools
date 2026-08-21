@@ -1,5 +1,6 @@
 """Utilities for discovering and selecting LST DL3 data products."""
 
+from .data_store import Dl3DataStore
 from .products import (
     DL3Product,
     DL3Request,

@@ -60,7 +60,7 @@ class Dl3DataStore:
             if energy_axis is None:
                 energy_axis = obs.rad_max.axes[0]
             angular_resolution.append(np.ravel(obs.rad_max.data))
-            effective_obs_time.append(obs.observation_live_time_duration.to_value("s"))
+            effective_obs_time.append(obs.observation_time_duration.to_value("s"))
 
         if energy_axis is None:
             logging.warning("No observations available to plot angular resolution")
