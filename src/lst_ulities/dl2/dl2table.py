@@ -2,7 +2,7 @@ import h5py
 import hdf5plugin
 import pandas as pd
 from lstchain.io.io import dl2_params_lstcam_key
-from pyirf.utils import calculate_theta
+from pyirf.utils import angular_separation
 
 REDUCED_COLUMNS = (
     "x",
@@ -45,4 +45,6 @@ class DL2McTable:
         else:
             self.data = pd.DataFrame(self._dl2_params[::], copy=False)
         self.data.rename(columns=rename_mapping, inplace=True)
-        self.data["theta"] = calculate_theta(self.data, self.data["true_az"], self.data["true_alt"])
+        self.data["theta"] = angular_separation(
+            self.data["reco_az"], self.data["reco_alt"], self.data["true_az"], self.data["true_alt"]
+        )
