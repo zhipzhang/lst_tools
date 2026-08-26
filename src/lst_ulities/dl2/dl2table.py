@@ -20,6 +20,8 @@ REDUCED_COLUMNS = (
     "reco_az",
     "mc_alt",
     "mc_az",
+    "disp_sign",
+    "reco_disp_sign",
 )
 
 rename_mapping = {
