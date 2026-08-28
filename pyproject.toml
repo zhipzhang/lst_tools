@@ -24,6 +24,7 @@ dependencies = [
 
 [project.scripts]
 init-lstana = "lst_ulities.scripts.init_lstana:main"
+find-offrun = "lst_ulities.scripts.find_offrun:main"
 create-dl3-directory = "lst_ulities.scripts.create_dl3_directory:main"
 create-dl2-directory = "lst_ulities.scripts.create_dl2_directory:main"
 
@@ -43,3 +44,9 @@ line-length = 120
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
+
+[tool.basedpyright]
+typeCheckingMode = "standard"
+reportMissingParameterType = "none"
+reportMissingTypeArgument = "none"
+reportUnannotatedClassAttribute = "none"
