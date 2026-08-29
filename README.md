@@ -66,6 +66,26 @@ dl3/
 └── full_diffuse/
 ```
 
+## Shared DataCheck tables
+
+Point the global store at an analysis's `data_check/` directory once. The
+tables and run statistics are stored in separate files and loaded lazily when
+each property is first accessed:
+
+```python
+from lst_ulities.datacheck import initialize_data_check, run_data_check
+
+initialize_data_check("/path/to/analysis/data_check")
+
+# Available from any other module after initialization.
+tables = run_data_check.data_check_tables
+run_statistics = run_data_check.run_statistics
+```
+
+`init-lstana` points the store at its output directory after writing both
+products. Access before initialization raises a clear `RuntimeError`; neither
+file is read merely by importing or initializing the store.
+
 ## Layout
 
 ```

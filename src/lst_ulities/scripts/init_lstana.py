@@ -15,6 +15,7 @@ from lst_ulities.datacheck import (
     DataCheckTables,
     DataFilter,
     RunStatistics,
+    initialize_data_check,
     validate_zenith_bin_edges,
     zenith_bin_labels,
 )
@@ -180,6 +181,7 @@ def main():
         selected_tables = data_check_tables.select_runs(selected_runs.run_numbers)
         selected_tables.save_to_h5file(data_check_dir / f"data_check_{stem}.h5", overwrite=True)
         selected_runs.save_to_h5file(data_check_dir / f"selected_runs_{stem}.h5", overwrite=True)
+        initialize_data_check(data_check_dir)
 
     counts = create_data_links(selected_runs, output_root, requested_levels)
     dl3_config = config.get("dl3", {})

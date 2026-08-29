@@ -1,52 +1,71 @@
+import re
+from typing import Optional
+
 import h5py
 import hdf5plugin
+import numpy as np
 import pandas as pd
 from lstchain.io.io import dl2_params_lstcam_key
+from lstchain.io.provenance import read_dl2_provenance
+from lstchain.reco.utils import get_effective_time, get_intensity_cut
 from pyirf.utils import angular_separation
 
-REDUCED_COLUMNS = (
-    "x",
-    "y",
-    "r",
-    "intensity",
-    "log_intensity",
-    "leakage_intensity_width_1",
-    "leakage_intensity_width_2",
-    "mc_energy",
-    "reco_energy",
-    "alt_tel",
-    "az_tel",
-    "reco_alt",
-    "reco_az",
-    "mc_alt",
-    "mc_az",
-    "disp_sign",
-    "reco_disp_sign",
-)
-
-rename_mapping = {
-    "mc_energy": "true_energy",
-    "reco_energy": "reco_energy",
-    "mc_alt": "true_alt",
-    "mc_az": "true_az",
-    "reco_alt": "reco_alt",
-    "reco_az": "reco_az",
-    "alt_tel": "pointing_alt",
-    "az_tel": "pointing_az",
-}
+from ..datacheck import DataCheckStore, run_data_check
 
 
-class DL2McTable:
-    def __init__(self, file_name: str, use_reduced=False):
+class LSTDL2EventTable:
+    def __init__(self, file_name: str, data_check_store: None | DataCheckStore = None):
         self.file_name = file_name
-        self._file = h5py.File(file_name, "r")
-        self._dl2_params = self._file[dl2_params_lstcam_key]
-
-        if use_reduced:
-            self.data = pd.DataFrame(self._dl2_params.fields(REDUCED_COLUMNS)[::], copy=False)
+        self.run_id = int(file_name.split("Run")[1].split(".")[0])
+        if data_check_store is not None:
+            self.data_check_store = data_check_store
         else:
-            self.data = pd.DataFrame(self._dl2_params[::], copy=False)
-        self.data.rename(columns=rename_mapping, inplace=True)
-        self.data["theta"] = angular_separation(
-            self.data["reco_az"], self.data["reco_alt"], self.data["true_az"], self.data["true_alt"]
-        )
+            self.data_check_store = run_data_check
+
+        if not self.data_check_store.is_initialized:
+            raise RuntimeError("run_data_check is not initialized, using initialize_data_check method")
+        if self.run_id not in self.data_check_store.run_statistics.run_numbers:
+            raise RuntimeError(f"run_id {self.run_id} not found in run_statistics")
+        self.pointing_ra = self.data_check_store.run_statistics.df.loc[self.run_id, "mean_ra"]
+        self.pointing_dec = self.data_check_store.run_statistics.df.loc[self.run_id, "mean_dec"]
+        self.pointing_zen = np.arccos(self.data_check_store.run_statistics.df.loc[self.run_id, "mean_cos_zd"])
+        self.dl2_params = pd.read_hdf(self.file_name, key=dl2_params_lstcam_key)
+        self.t_eff, self.t_elapsed = get_effective_time(self.dl2_params)
+        self.dl2_provenance = read_dl2_provenance(self.file_name)
+        self.analyze_provenance()
+
+    @property
+    def data(self):
+        return self.dl2_params
+
+    def analyze_provenance(self):
+        config = self.dl2_provenance["input"]
+        for input_info in config:
+            if "input" in input_info["role"]:
+                self.input_path = input_info["url"]
+            if "model" in input_info["role"]:
+                self.model_directory = input_info["url"]
+
+    @property
+    def tailcut_level(self) -> tuple[int, int] | None:
+        match = re.search(r"tailcut(\d+)", self.input_path)
+        if not match:
+            return None
+        digits = match.group(1)
+        mid = len(digits) // 2
+        return int(digits[:mid]), int(digits[mid:])
+
+    @property
+    def nsb_level(self) -> float | None:
+        match = re.search(r"nsb_tuning_([\d.]+)", self.model_directory)
+        return float(match.group(1)) if match else None
+
+    @property
+    def intensity_cuts(self) -> float:
+        intensity_cuts = get_intensity_cut(self.data)
+        return (intensity_cuts // 10 + 1) * 10
+
+    @property
+    def dec_line(self) -> int | None:
+        match = re.search(r"dec_([\d.]+)", self.model_directory)
+        return int(match.group(1)) if match else None
