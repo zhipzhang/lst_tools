@@ -1,13 +1,9 @@
 from dataclasses import dataclass
 
 import astropy.units as u
-import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
 from astropy.coordinates import SkyCoord
-
-from ..helper import init_plot, plot_histogram
-from .run_statistics import RunStatistics
 
 CRAB_NEBULA = SkyCoord.from_name("Crab Nebula")
 
@@ -32,157 +28,92 @@ class DataFilter:
     min_drdi_at_422pe: float = 1.5
     min_fraction_around_mode: float = 0.8
 
-    BASIC_CUTS = [
+    BASIC_COLUMNS = (
+        "run_number",
         "n_subruns",
         "date",
-        "have_flatfield",
-        "have_pedestal",
-        "angle_to_source",
-        "cos_zenith",
+        "n_flatfield",
+        "n_pedestal",
+        "mean_ra",
+        "mean_dec",
+        "mean_cos_zd",
         "pointing_dec_std",
-    ]
+    )
+    ADVANCED_COLUMNS = (
+        "mean_diffuse_nsb_std",
+        "mean_intensity_threshold",
+        "mean_fit_p_value",
+        "mean_index",
+        "mean_R422",
+        "fraction_around_mode_R422",
+    )
 
-    QUALITY_CUTS = [
-        "n_subruns",
-        "have_flatfield",
-        "have_pedestal",
-        "pointing_dec_std",
-        "nsb_std",
-        "intensity_threshold",
-        "fit_p_value",
-        "drdi_index",
-        "drdi_at_422pe",
-        "fraction_around_mode",
-    ]
-
-    def cut_masks(self, df: pd.DataFrame, advanced_cuts: bool = False) -> pd.DataFrame:
-        """Return the active boolean cut masks.
-
-        By default only the fundamental cuts are returned. Set ``advanced_cuts=True``
-        to include the quality/physics cuts as well.
+    def __call__(self, statistics: pd.DataFrame, advanced_cuts: bool = False) -> list[int]:
         """
-        pointing = SkyCoord(ra=df["mean_ra"].to_numpy() * u.deg, dec=df["mean_dec"].to_numpy() * u.deg)  # pyright: ignore
-        source = SkyCoord(ra=self.source_ra * u.deg, dec=self.source_dec * u.deg)  # pyright: ignore
-        offset_angle = pointing.separation(source).to_value("deg")
-        p_value_in_sigma = (df["mean_fit_p_value"] - 0.5) * np.sqrt(12 * df["n_subruns"])
+        Apply the cuts on a `pd.DataFrame`
+        and return the filtered list of run
+
+        Parameters
+        ----------
+        statistics : pd.DataFrame
+            The run-statistics DataFrame.
+        advanced_cuts : bool, optional
+            Whether to apply advanced cuts.
+
+        Returns
+        -------
+        List[int]
+            The filtered list of run numbers.
+        """
+        filtered = self.apply_basic_cuts(statistics)
+
+        if advanced_cuts:
+            filtered = self.apply_advanced_cuts(filtered)
+
+        return filtered["run_number"].tolist()
+
+    def apply_basic_cuts(self, statistics: pd.DataFrame) -> pd.DataFrame:
+        """Return rows that pass all basic data-quality cuts."""
+        if not set(self.BASIC_COLUMNS).issubset(statistics.columns):
+            raise ValueError("BASIC_COLUMNS must exist as columns in statistics")
+
+        pointing = SkyCoord(
+            ra=statistics["mean_ra"].to_numpy() * u.Unit("deg"),
+            dec=statistics["mean_dec"].to_numpy() * u.Unit("deg"),
+        )
+        source = SkyCoord(ra=self.source_ra * u.Unit("deg"), dec=self.source_dec * u.Unit("deg"))
+        angle_to_source = pointing.separation(source).to_value("deg")
+
         min_cos_zenith = np.cos(np.radians(self.max_zenith_angle))
         max_cos_zenith = np.cos(np.radians(self.min_zenith_angle))
 
-        masks = pd.DataFrame(
-            {
-                "n_subruns": df["n_subruns"] > 0,
-                "date": df["date"].between(self.first_date, self.last_date),
-                "have_flatfield": df["n_flatfield"] >= 1,
-                "have_pedestal": df["n_pedestals"] >= 1,
-                "angle_to_source": (offset_angle >= self.min_angle_to_source)  # pyright: ignore
-                & (offset_angle <= self.max_angle_to_source),  # pyright: ignore
-                "cos_zenith": df["mean_cos_zd"].between(min_cos_zenith, max_cos_zenith),
-                "pointing_dec_std": df["std_dec"] <= self.max_pointing_dec_std,
-                "nsb_std": df["mean_diffuse_nsb_std"] <= self.max_diffuse_nsb_std,
-                "intensity_threshold": ~(df["mean_intensity_threshold"] > self.max_intensity_at_half_peak_rate),
-                "fit_p_value": p_value_in_sigma >= self.min_mean_fit_p,
-                "drdi_index": df["mean_index"].between(self.min_drdi_index, self.max_drdi_index),
-                "drdi_at_422pe": df["mean_R422"] >= self.min_drdi_at_422pe,
-                "fraction_around_mode": df["fraction_around_mode_R422"] >= self.min_fraction_around_mode,
-            },
-            index=df.index,
+        mask = (
+            statistics["n_subruns"].gt(0)
+            & statistics["date"].between(self.first_date, self.last_date)
+            & statistics["n_flatfield"].ge(1)
+            & statistics["n_pedestal"].ge(1)
+            & (angle_to_source >= self.min_angle_to_source)
+            & (angle_to_source <= self.max_angle_to_source)
+            & statistics["mean_cos_zd"].between(min_cos_zenith, max_cos_zenith)
+            & statistics["pointing_dec_std"].le(self.max_pointing_dec_std)
         )
-        return masks if advanced_cuts else masks[self.BASIC_CUTS]  # pyright: ignore
+        return statistics.loc[mask]
 
-    def filter_good_offruns(
-        self, statistics: RunStatistics, min_extra_distance: float = 3.0, min_galactic_b: float = 10
-    ) -> RunStatistics:
-        """
-        This is a helper function that filter those runs with good quality and far away from the Catalog Sources
-        """
-        df = statistics.df
-        quality_cuts = (self.cut_masks(df, advanced_cuts=True)[self.QUALITY_CUTS]).all(axis=1)
-        from ..catalog import load_hawc_sources, load_hess_sources, load_lhaaso_sources
+    def apply_advanced_cuts(self, statistics: pd.DataFrame) -> pd.DataFrame:
+        """Return rows that pass all advanced data-quality cuts."""
+        if not set(self.ADVANCED_COLUMNS).issubset(statistics.columns):
+            raise ValueError("ADVANCED_COLUMNS must exist as columns in statistics")
+        if "n_subruns" not in statistics.columns:
+            raise ValueError("n_subruns must exist as a column in statistics")
 
-        pointing = SkyCoord(ra=df["mean_ra"].to_numpy() * u.Unit("deg"), dec=df["mean_dec"].to_numpy() * u.Unit("deg"))
+        p_value_in_sigma = (statistics["mean_fit_p_value"] - 0.5) * np.sqrt(12 * statistics["n_subruns"])
 
-        pointing_mask = np.ones(len(df), dtype=bool)
-        sources = load_hess_sources() + load_lhaaso_sources() + load_hawc_sources()
-        for source in sources:
-            min_distance = 2.5 * source.extension.to_value("deg") if source.extension is not None else 0
-            pointing_mask &= pointing.separation(source.coord) > (min_distance + min_extra_distance) * u.Unit("deg")
-        pointing_mask &= np.abs(pointing.galactic.b) > min_galactic_b * u.Unit("deg")
-        quality_cuts &= pointing_mask
-        return statistics.select(quality_cuts)
-
-    def mask(self, df: pd.DataFrame, advanced_cuts: bool = False) -> pd.Series:
-        """Return a boolean mask for the given run-statistics DataFrame."""
-        return self.cut_masks(df, advanced_cuts=advanced_cuts).all(axis=1)  # pyright: ignore
-
-    def cutflow(self, df: pd.DataFrame, advanced_cuts: bool = False) -> pd.Series:
-        """Return the cumulative effect of the active cuts."""
-        masks = self.cut_masks(df, advanced_cuts=advanced_cuts)
-        remaining = masks.cumprod(axis=1).sum()
-        return pd.concat([pd.Series({"total": len(df)}), remaining])
-
-    def __call__(self, statistics: RunStatistics, advanced_cuts: bool = False) -> RunStatistics:
-        """Apply the active cuts to a ``RunStatistics`` object.
-
-        By default only the fundamental cuts are applied. Set ``advanced_cuts=True``
-        to include the quality/physics cuts as well.
-        """
-        mask = self.mask(statistics.df, advanced_cuts=advanced_cuts)
-        return statistics.select(mask)
-
-    def plot_advanced_cuts(self, statistics: RunStatistics):
-        """Draw all advanced-cut distributions on a single 3×2 figure."""
-        init_plot()
-        statistics_after_basic_cut = self(statistics, advanced_cuts=False)
-
-        fig, axes = plt.subplots(3, 2, figsize=(10, 11), constrained_layout=True)
-        axes = axes.flatten()
-
-        plot_histogram(
-            statistics_after_basic_cut["mean_diffuse_nsb_std"],
-            max=self.max_diffuse_nsb_std,
-            ax=axes[0],
-            xlabel="mean diffuse NSB std",
-            title="mean_diffuse_nsb_std",
+        mask = (
+            statistics["mean_diffuse_nsb_std"].le(self.max_diffuse_nsb_std)
+            & statistics["mean_intensity_threshold"].le(self.max_intensity_at_half_peak_rate)
+            & p_value_in_sigma.ge(self.min_mean_fit_p)
+            & statistics["mean_index"].between(self.min_drdi_index, self.max_drdi_index)
+            & statistics["mean_R422"].ge(self.min_drdi_at_422pe)
+            & statistics["fraction_around_mode_R422"].ge(self.min_fraction_around_mode)
         )
-        plot_histogram(
-            statistics_after_basic_cut["mean_intensity_threshold"],
-            max=self.max_intensity_at_half_peak_rate,
-            ax=axes[1],
-            xlabel="mean intensity threshold",
-            title="mean_intensity_threshold",
-        )
-
-        p_value_in_sigma = (statistics_after_basic_cut["mean_fit_p_value"] - 0.5) * np.sqrt(
-            12 * statistics_after_basic_cut["n_subruns"]
-        )
-        plot_histogram(
-            p_value_in_sigma,
-            min=self.min_mean_fit_p,
-            ax=axes[2],
-            xlabel="mean fit p-value (#sigma)",
-            title="mean_fit_p_value",
-        )
-        plot_histogram(
-            statistics_after_basic_cut["mean_index"],
-            min=self.min_drdi_index,
-            max=self.max_drdi_index,
-            ax=axes[3],
-            xlabel="mean DRDI index",
-            title="mean_index",
-        )
-        plot_histogram(
-            statistics_after_basic_cut["mean_R422"],
-            min=self.min_drdi_at_422pe,
-            ax=axes[4],
-            xlabel="mean R422",
-            title="mean_R422",
-        )
-        plot_histogram(
-            statistics_after_basic_cut["fraction_around_mode_R422"],
-            min=self.min_fraction_around_mode,
-            ax=axes[5],
-            xlabel="fraction around mode R422",
-            title="fraction_around_mode_R422",
-        )
-
-        return fig, axes
+        return statistics.loc[mask]

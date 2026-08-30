@@ -7,20 +7,22 @@ from .datacheck import (
     DataCheckTables,
     DataFilter,
     RunStatistics,
-    run_data_check,
     initialize_data_check,
+    plot_advanced_distributions,
+    run_data_check,
 )
 from .helper import glob_files, plot_histogram
 
 __all__ = [
-    "run_data_check",
     "DataCheckStore",
     "DataCheckTables",
     "DataFilter",
+    "RunStatistics",
     "glob_files",
     "initialize_data_check",
+    "plot_advanced_distributions",
     "plot_histogram",
-    "RunStatistics",
+    "run_data_check",
 ]
 
 try:
