@@ -26,9 +26,12 @@ class LSTDL2EventTable:
             raise RuntimeError("run_data_check is not initialized, using initialize_data_check method")
         if self.run_id not in self.data_check_store.run_statistics.run_numbers:
             raise RuntimeError(f"run_id {self.run_id} not found in run_statistics")
-        self.pointing_ra = self.data_check_store.run_statistics.df.loc[self.run_id, "mean_ra"]
-        self.pointing_dec = self.data_check_store.run_statistics.df.loc[self.run_id, "mean_dec"]
-        self.pointing_zen = np.arccos(self.data_check_store.run_statistics.df.loc[self.run_id, "mean_cos_zd"])
+        self.pointing_ra = self.data_check_store.run_statistics.df.loc[self.run_id, "mean_ra"]  # degree
+        self.pointing_dec = self.data_check_store.run_statistics.df.loc[self.run_id, "mean_dec"]  # degree
+        self.run_check = self.data_check_store.data_check_tables.select_runs([self.run_id])
+        self.pointing_alt = self.run_check.runsummary["mean_altitude"].iloc[0]  # rad
+        self.pointing_az = self.run_check.runsummary["mean_azimuth"].iloc[0]  # rad
+
         self.dl2_params = pd.read_hdf(self.file_name, key=dl2_params_lstcam_key)
         self.t_eff, self.t_elapsed = get_effective_time(self.dl2_params)
         self.dl2_provenance = read_dl2_provenance(self.file_name)
