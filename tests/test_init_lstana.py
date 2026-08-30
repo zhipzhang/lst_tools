@@ -2,9 +2,9 @@ import numpy as np
 import pandas as pd
 import pytest
 
-from lst_ulities.datacheck import RunStatistics
-from lst_ulities.dl3 import parse_dl3_path
-from lst_ulities.scripts.init_lstana import create_data_links, create_dl3_links
+from lst_tools.datacheck import RunStatistics
+from lst_tools.dl3 import parse_dl3_path
+from lst_tools.scripts.init_lstana import create_data_links, create_dl3_links
 
 
 def test_create_data_links_groups_runs_and_is_idempotent(tmp_path):

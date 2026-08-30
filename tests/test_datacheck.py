@@ -1,7 +1,7 @@
 import pandas as pd
 import pytest
 
-from lst_ulities.datacheck import DataCheckTables
+from lst_tools.datacheck import DataCheckTables
 
 
 @pytest.fixture

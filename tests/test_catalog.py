@@ -7,7 +7,7 @@ import matplotlib.pyplot as plt
 import pytest
 from astropy.coordinates import SkyCoord
 
-from lst_ulities.catalog import (
+from lst_tools.catalog import (
     CATALOG_STYLES,
     CatalogSource,
     SkyPlotter,

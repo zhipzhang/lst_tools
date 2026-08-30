@@ -1,4 +1,4 @@
-"""lst_ulities: utilities built on top of lstchain and ctapipe."""
+"""lst_tools: utilities built on top of lstchain and ctapipe."""
 
 from importlib.metadata import PackageNotFoundError, version
 
@@ -24,6 +24,6 @@ __all__ = [
 ]
 
 try:
-    __version__ = version("lst_ulities")
+    __version__ = version("lst_tools")
 except PackageNotFoundError:  # package not installed
     __version__ = "0.0.0"

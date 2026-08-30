@@ -1,4 +1,4 @@
-# lst_ulities
+# lst_tools
 
 Utilities built on top of [lstchain](https://github.com/cta-observatory/cta-lstchain)
 and [ctapipe](https://github.com/cta-observatory/ctapipe) for LST data analysis.
@@ -8,8 +8,8 @@ and [ctapipe](https://github.com/cta-observatory/ctapipe) for LST data analysis.
 Create a conda environment (recommended, since lstchain is distributed via conda):
 
 ```bash
-conda create -n lst_ulities -c conda-forge python=3.11 lstchain
-conda activate lst_ulities
+conda create -n lst_tools -c conda-forge python=3.11 lstchain
+conda activate lst_tools
 pip install -e .[dev]
 ```
 
@@ -73,7 +73,7 @@ tables and run statistics are stored in separate files and loaded lazily when
 each property is first accessed:
 
 ```python
-from lst_ulities.datacheck import initialize_data_check, run_data_check
+from lst_tools.datacheck import initialize_data_check, run_data_check
 
 initialize_data_check("/path/to/analysis/data_check")
 
@@ -89,6 +89,6 @@ file is read merely by importing or initializing the store.
 ## Layout
 
 ```
-src/lst_ulities/   # package source
+src/lst_tools/   # package source
 tests/             # test suite
 ```

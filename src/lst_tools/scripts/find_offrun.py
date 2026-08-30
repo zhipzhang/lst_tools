@@ -9,9 +9,9 @@ try:
 except ModuleNotFoundError:  # pragma: no cover - Python 3.10 compatibility
     import tomli as tomllib
 
-from lst_ulities.datacheck import DataCheckTables, DataFilter, RunStatistics
-from lst_ulities.helper import find_lst_data_path, glob_files
-from lst_ulities.scripts.init_lstana import DATACHECK_DIR, create_safe_link
+from lst_tools.datacheck import DataCheckTables, DataFilter, RunStatistics
+from lst_tools.helper import find_lst_data_path, glob_files
+from lst_tools.scripts.init_lstana import DATACHECK_DIR, create_safe_link
 
 
 def create_dl2_links(

@@ -1,7 +1,7 @@
 import pandas as pd
 import pytest
 
-from lst_ulities.datacheck import DataCheckStore, DataCheckTables, RunStatistics
+from lst_tools.datacheck import DataCheckStore, DataCheckTables, RunStatistics
 
 
 def write_products(directory, run_number):

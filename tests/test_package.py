@@ -1,5 +1,5 @@
-import lst_ulities
+import lst_tools
 
 
 def test_version():
-    assert isinstance(lst_ulities.__version__, str)
+    assert isinstance(lst_tools.__version__, str)

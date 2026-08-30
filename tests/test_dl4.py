@@ -2,7 +2,7 @@ import numpy as np
 import pytest
 from hist import Hist, axis, storage
 
-from lst_ulities.dl4.plot import (
+from lst_tools.dl4.plot import (
     _containment_68,
     _excess_histogram,
     _interpolate_containment,

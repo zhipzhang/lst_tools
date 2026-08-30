@@ -3,7 +3,7 @@ import pathlib
 import pytest
 
 IS_LAPLAMA_SERVER = pathlib.Path("/fefs/aswg/data/real").exists()
-from lst_ulities.helper import find_lst_data_path
+from lst_tools.helper import find_lst_data_path
 
 
 @pytest.mark.skipif(not IS_LAPLAMA_SERVER, reason="This test need to run at the LAPLAMA server")

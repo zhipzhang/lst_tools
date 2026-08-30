@@ -13,7 +13,7 @@ import numpy as np
 from gammapy.data import DataStore, Observation
 from gammapy.maps import MapAxis
 
-from lst_ulities.helper import init_plot
+from lst_tools.helper import init_plot
 
 
 def generate_index_file(path):

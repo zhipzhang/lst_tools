@@ -11,7 +11,7 @@ try:
 except ModuleNotFoundError:  # pragma: no cover - Python 3.10 compatibility
     import tomli as tomllib
 
-from lst_ulities.datacheck import (
+from lst_tools.datacheck import (
     DataCheckTables,
     DataFilter,
     RunStatistics,
@@ -19,13 +19,13 @@ from lst_ulities.datacheck import (
     validate_zenith_bin_edges,
     zenith_bin_labels,
 )
-from lst_ulities.dl3 import (
+from lst_tools.dl3 import (
     DL3Product,
     discover_lst_dl3_products,
     load_dl3_requests,
     select_configured_dl3_products,
 )
-from lst_ulities.helper import find_lst_data_path, glob_files
+from lst_tools.helper import find_lst_data_path, glob_files
 
 DATACHECK_DIR = (
     "/fefs/aswg/data/real/DL1/datacheck_files/night_wise/",
