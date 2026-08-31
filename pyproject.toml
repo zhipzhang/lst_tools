@@ -20,13 +20,14 @@ dependencies = [
     "tables",
     "tomli; python_version < '3.11'",
     "gammapy",
+    "hist",
+    "h5py",
+    "uhi",
 ]
 
 [project.scripts]
 init-lstana = "lst_tools.scripts.init_lstana:main"
-find-offrun = "lst_tools.scripts.find_offrun:main"
-create-dl3-directory = "lst_tools.scripts.create_dl3_directory:main"
-create-dl2-directory = "lst_tools.scripts.create_dl2_directory:main"
+prepare-offruns = "lst_tools.scripts.prepare_offruns:main"
 
 [project.optional-dependencies]
 dev = [

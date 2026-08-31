@@ -5,13 +5,14 @@ import numpy as np
 import pandas as pd
 from astropy.coordinates import SkyCoord
 
-CRAB_NEBULA = SkyCoord.from_name("Crab Nebula")
+CRAB_RA_DEG = 83.6331
+CRAB_DEC_DEG = 22.0145
 
 
 @dataclass
 class DataFilter:
-    source_ra: float = CRAB_NEBULA.ra.to_value("deg")  # pyright: ignore
-    source_dec: float = CRAB_NEBULA.dec.to_value("deg")  # pyright: ignore
+    source_ra: float = CRAB_RA_DEG
+    source_dec: float = CRAB_DEC_DEG
     first_date: int = 0
     last_date: int = 29990101
     min_angle_to_source: float = 0.3
@@ -117,37 +118,3 @@ class DataFilter:
             & statistics["fraction_around_mode_R422"].ge(self.min_fraction_around_mode)
         )
         return statistics.loc[mask]
-
-    def filter_good_offruns(
-        self,
-        statistics: pd.DataFrame,
-        min_extra_distance: float = 3.0,
-        min_galactic_b: float = 10,
-    ) -> list[int]:
-        """Return good-quality runs sufficiently far from catalog sources."""
-        required_columns = set(self.BASIC_COLUMNS).union(self.ADVANCED_COLUMNS)
-        if not required_columns.issubset(statistics.columns):
-            raise ValueError("basic and advanced columns must exist in statistics")
-
-        quality_mask = (
-            statistics["n_subruns"].gt(0)
-            & statistics["n_flatfield"].ge(1)
-            & statistics["n_pedestal"].ge(1)
-            & statistics["pointing_dec_std"].le(self.max_pointing_dec_std)
-        )
-        filtered = self.apply_advanced_cuts(statistics.loc[quality_mask])
-
-        from ..catalog import load_hawc_sources, load_hess_sources, load_lhaaso_sources
-
-        pointing = SkyCoord(
-            ra=filtered["mean_ra"].to_numpy() * u.Unit("deg"),
-            dec=filtered["mean_dec"].to_numpy() * u.Unit("deg"),
-        )
-        pointing_mask = np.ones(len(filtered), dtype=bool)
-        sources = load_hess_sources() + load_lhaaso_sources() + load_hawc_sources()
-        for source in sources:
-            min_distance = 2.5 * source.extension.to_value("deg") if source.extension is not None else 0
-            pointing_mask &= pointing.separation(source.coord) > (min_distance + min_extra_distance) * u.Unit("deg")
-        pointing_mask &= np.abs(pointing.galactic.b) > min_galactic_b * u.Unit("deg")
-
-        return filtered.loc[pointing_mask, "run_number"].tolist()

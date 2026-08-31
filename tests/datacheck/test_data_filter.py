@@ -88,19 +88,6 @@ def test_apply_advanced_cuts(sample_pd: dict):
     assert data_filter(sample_pd["full_df"], advanced_cuts=True) == [1]
 
 
-def test_filter_good_offruns_returns_run_numbers(sample_pd: dict, monkeypatch):
-    import lst_tools.catalog
-
-    monkeypatch.setattr(lst_tools.catalog, "load_hess_sources", lambda: ())
-    monkeypatch.setattr(lst_tools.catalog, "load_lhaaso_sources", lambda: ())
-    monkeypatch.setattr(lst_tools.catalog, "load_hawc_sources", lambda: ())
-    data_filter = DataFilter(source_ra=10, source_dec=10)
-
-    result = data_filter.filter_good_offruns(sample_pd["full_df"], min_galactic_b=0)
-
-    assert result == [1]
-
-
 @pytest.mark.parametrize(
     ("threshold", "value", "newly_accepted_run"),
     [

@@ -7,7 +7,6 @@ plotting and filtering code treat every catalog the same way.
 """
 
 from dataclasses import dataclass
-from typing import Optional
 
 import astropy.units as u
 from astropy.coordinates import SkyCoord
@@ -25,7 +24,7 @@ class CatalogSource:
     name: str
     coord: SkyCoord
     catalog: str
-    extension: Optional[u.Quantity] = None
+    extension: u.Quantity | None = None
 
     @property
     def is_extended(self) -> bool:

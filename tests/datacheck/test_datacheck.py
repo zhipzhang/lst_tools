@@ -88,3 +88,25 @@ def test_select_runs(sample_tables: DataCheckTables):
     assert selected.cosmics_intensity_spectrum["runnumber"].to_list() == [2, 2]
     assert selected.runsummary["runnumber"].to_list() == [2]
     assert selected.runsummary["n_events"].to_list() == [200]
+
+
+def test_empty_selection_round_trips_through_hdf5(sample_tables: DataCheckTables, tmp_path):
+    output_file = tmp_path / "empty_datacheck.h5"
+    sample_tables.select_runs([]).save_to_h5file(output_file, overwrite=True)
+
+    loaded = DataCheckTables.from_files([str(output_file)])
+
+    assert loaded.flatfield.empty
+    assert loaded.cosmics_intensity_spectrum.empty
+    assert loaded.runsummary.empty
+
+    sample_tables.save_to_h5file(output_file)
+    reloaded = DataCheckTables.from_files([str(output_file)])
+    assert reloaded.flatfield["runnumber"].tolist() == [1, 1, 2, 2]
+    assert reloaded.cosmics_intensity_spectrum["runnumber"].tolist() == [1, 1, 2, 2]
+    assert reloaded.runsummary["runnumber"].tolist() == [1, 2]
+
+
+def test_from_files_rejects_empty_input():
+    with pytest.raises(ValueError, match="No valid DataCheck files"):
+        DataCheckTables.from_files([])

@@ -81,6 +81,9 @@ class DataCheckTables:
                 for name in table_names:
                     table_data[name].append(store[f"/{name}"])
 
+        if not table_data[table_names[0]]:
+            raise ValueError("No valid DataCheck files were loaded")
+
         return cls(**{name: pd.concat(dataframes, ignore_index=True) for name, dataframes in table_data.items()})
 
     def get_statistics(self, spec: dict) -> pd.DataFrame:
@@ -111,10 +114,17 @@ class DataCheckTables:
         mode = "w" if overwrite else "a"
         with pd.HDFStore(file, mode=mode) as store:
             for name in self.__dataclass_fields__:
+                table = getattr(self, name)
                 if overwrite:
-                    store.put(name, getattr(self, name), format="table")
+                    store.put(name, table, format="fixed" if table.empty else "table")
+                elif table.empty:
+                    if f"/{name}" not in store:
+                        store.put(name, table, format="fixed")
+                elif f"/{name}" in store and not store.get_storer(name).is_table:
+                    existing = store[name]
+                    store.put(name, pd.concat([existing, table], ignore_index=True), format="table")
                 else:
-                    store.append(name, getattr(self, name))
+                    store.append(name, table)
 
     def describe(self) -> None:
         """Print a summary of the loaded runs.

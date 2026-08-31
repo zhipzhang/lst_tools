@@ -47,8 +47,8 @@ analysis/
 
 Bins include their lower edge and exclude their upper edge; the last bin also
 includes its upper edge. Running the command again keeps correct links and
-does not replace conflicting files. The selected-run HDF5 table contains both
-`mean_zenith_angle` and `zenith_bin` columns.
+does not replace conflicting files. The `data_check/` directory contains the
+selected DataCheck tables and advanced-cut diagnostic plots.
 
 DL3 linking is controlled explicitly by `[dl3]` in the TOML configuration. The
 configured products are crossed with `cut_configs`, and only exact matches are
@@ -66,25 +66,32 @@ dl3/
 └── full_diffuse/
 ```
 
-## Shared DataCheck tables
+## DataCheck statistics
 
-Point the global store at an analysis's `data_check/` directory once. The
-tables and run statistics are stored in separate files and loaded lazily when
-each property is first accessed:
+Load DataCheck tables and calculate run-wise statistics directly:
 
 ```python
-from lst_tools.datacheck import initialize_data_check, run_data_check
+from lst_tools.datacheck import DataCheckTables
 
-initialize_data_check("/path/to/analysis/data_check")
-
-# Available from any other module after initialization.
-tables = run_data_check.data_check_tables
-run_statistics = run_data_check.run_statistics
+tables = DataCheckTables.from_files(["/path/to/data_check.h5"])
+statistics = tables.statistics
 ```
 
-`init-lstana` points the store at its output directory after writing both
-products. Access before initialization raises a clear `RuntimeError`; neither
-file is read merely by importing or initializing the store.
+## Prepare catalog-separated off runs
+
+Apply the configured basic and advanced quality cuts, ignore the configured
+target-angle range, and reject pointings near HESS, LHAASO, and HAWC catalog
+sources:
+
+```bash
+prepare-offruns config/config.toml \
+  --output /path/to/offruns \
+  --min-separation 3 \
+  --extension-factor 2.5
+```
+
+This creates `data_check/DL1_datacheck_offruns.h5` and idempotent links under
+`dl2/`.
 
 ## Layout
 

@@ -20,7 +20,7 @@ edges_deg = [0.0, 20.0, 30.0, 40.0, 50.0, 60.0, 70.0]
 # advanced cuts means the cuts derived from cosmic ray intensity spectrum and others
 # this could be derived later ?
 with_advanced = false
-[data_filter.basic_cuts]
+[data_filter.cuts]
 min_angle_to_source = 0.3       # deg
 max_angle_to_source = 0.5       # deg
 first_date = 0

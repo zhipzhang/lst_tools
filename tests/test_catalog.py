@@ -4,6 +4,7 @@ import matplotlib
 matplotlib.use("Agg")
 
 import matplotlib.pyplot as plt
+import pandas as pd
 import pytest
 from astropy.coordinates import SkyCoord
 
@@ -13,6 +14,7 @@ from lst_tools.catalog import (
     SkyPlotter,
     plot_sources,
     select_region,
+    select_runs_away_from_sources,
 )
 
 CRAB = SkyCoord(ra=83.6331, dec=22.0145, unit="deg")
@@ -38,6 +40,39 @@ def test_select_region():
     selected = select_region(SOURCES, center=SOURCES[2].coord, radius=0.1 * u.deg)
     assert [s.name for s in selected] == ["far_away"]
     assert select_region((), center=CRAB, radius=1 * u.deg) == []
+
+
+def test_select_runs_away_from_sources_only_applies_catalog_separation():
+    statistics = pd.DataFrame(
+        {
+            "run_number": [1, 2, 3, 4],
+            "mean_ra": [1.0, 3.0, 12.0, 15.0],
+            "mean_dec": [0.0, 0.0, 0.0, 0.0],
+        }
+    )
+    sources = (
+        CatalogSource(
+            name="point-like",
+            coord=SkyCoord(ra=0, dec=0, unit="deg"),
+            catalog="test",
+        ),
+        CatalogSource(
+            name="extended",
+            coord=SkyCoord(ra=10, dec=0, unit="deg"),
+            catalog="test",
+            extension=1 * u.deg,
+        ),
+    )
+
+    selected = select_runs_away_from_sources(
+        statistics,
+        sources,
+        min_separation=2 * u.deg,
+        extension_factor=2.5,
+    )
+
+    assert selected["run_number"].tolist() == [2, 4]
+    assert statistics["run_number"].tolist() == [1, 2, 3, 4]
 
 
 def test_catalog_styles_cover_known_catalogs():
