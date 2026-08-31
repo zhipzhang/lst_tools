@@ -1,1 +1,1 @@
-from .dl2table import LSTDL2EventTable
+from .dl2table import LSTDL2EventTable as LSTDL2EventTable
