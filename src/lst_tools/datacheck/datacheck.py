@@ -1,10 +1,46 @@
 import logging
+from collections.abc import Iterable
 from dataclasses import dataclass, replace
 from pathlib import Path
-from typing import Iterable, List
 
 import numpy as np
 import pandas as pd
+
+from .utils import azimuth_angle_mean, find_mode
+
+logger = logging.getLogger(__name__)
+
+DEFAULT_SPEC = {
+    "cosmics_intensity_spectrum": {
+        "n_subruns": ("runnumber", "size"),
+        "date": ("yyyymmdd", "first"),
+        "mean_R422": ("ZD_corrected_cosmics_rate_at_422_pe", "mean"),
+        "std_R422": ("ZD_corrected_cosmics_rate_at_422_pe", "std"),
+        "mode_R422": ("ZD_corrected_cosmics_rate_at_422_pe", lambda x: find_mode(x)),
+        "fraction_around_mode_R422": (
+            "ZD_corrected_cosmics_rate_at_422_pe",
+            lambda x: find_mode(x, return_fraction=True),
+        ),
+        "mean_intensity_at_reference_rate": ("intensity_at_reference_rate", "mean"),
+        "std_intensity_at_reference_rate": ("intensity_at_reference_rate", "std"),
+        "mean_light_yield": ("light_yield", "mean"),
+        "std_light_yield": ("light_yield", "std"),
+        "mean_index": ("ZD_corrected_cosmics_spectral_index", "mean"),
+        "std_index": ("ZD_corrected_cosmics_spectral_index", "std"),
+        "mean_fit_p_value": ("intensity_spectrum_fit_p_value", "mean"),
+        "mean_intensity_threshold": ("ZD_corrected_intensity_at_half_peak_rate", "mean"),
+        "std_intensity_threshold": ("ZD_corrected_intensity_at_half_peak_rate", "std"),
+        "mean_ra": ("ra_tel", lambda x: azimuth_angle_mean(x)),
+        "mean_dec": ("dec_tel", "mean"),
+        "pointing_dec_std": ("dec_tel", "std"),
+        "mean_cos_zd": ("cos_zenith", "mean"),
+        "mean_diffuse_nsb_std": ("diffuse_nsb_std", "mean"),
+    },
+    "runsummary": {
+        "n_flatfield": ("num_flatfield", "first"),
+        "n_pedestal": ("num_pedestals", "first"),
+    },
+}
 
 
 @dataclass
@@ -14,7 +50,7 @@ class DataCheckTables:
     runsummary: pd.DataFrame
 
     @classmethod
-    def from_files(cls, files: List[str]) -> "DataCheckTables":
+    def from_files(cls, files: list[str]) -> "DataCheckTables":
         """Load and concatenate DataCheck tables from a list of HDF5 files.
 
         Each file is opened once, and the tables ``flatfield``,
@@ -39,16 +75,32 @@ class DataCheckTables:
                 available = set(store.keys())
                 missing = [name for name in table_names if f"/{name}" not in available]
                 if missing:
-                    logging.warning(
-                        "Skipping %s: missing table(s) %s",
-                        file,
-                        ", ".join(f"/{name}" for name in missing),
-                    )
+                    logger.warning("Skipping %s: missing table(s) %s", file, ", ".join(f"/{name}" for name in missing))
                     continue
+
                 for name in table_names:
                     table_data[name].append(store[f"/{name}"])
 
         return cls(**{name: pd.concat(dataframes, ignore_index=True) for name, dataframes in table_data.items()})
+
+    def get_statistics(self, spec: dict) -> pd.DataFrame:
+        table_statistics = []
+
+        for table_name, table_spec in spec.items():
+            table = getattr(self, table_name)
+            table_statistics.append(table.groupby("runnumber").agg(**table_spec))
+
+        return (
+            pd.concat(table_statistics, axis="columns", join="outer")
+            .sort_index()
+            .rename_axis("run_number")
+            .reset_index()
+        )
+
+    @property
+    def statistics(self) -> pd.DataFrame:
+        """Return the run-wise statistics defined by :data:`DEFAULT_SPEC`."""
+        return self.get_statistics(DEFAULT_SPEC)
 
     def save_to_h5file(self, file: str | Path, overwrite: bool = False) -> None:
         """Save all DataCheck tables to an HDF5 file.

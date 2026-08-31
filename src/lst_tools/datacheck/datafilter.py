@@ -117,3 +117,37 @@ class DataFilter:
             & statistics["fraction_around_mode_R422"].ge(self.min_fraction_around_mode)
         )
         return statistics.loc[mask]
+
+    def filter_good_offruns(
+        self,
+        statistics: pd.DataFrame,
+        min_extra_distance: float = 3.0,
+        min_galactic_b: float = 10,
+    ) -> list[int]:
+        """Return good-quality runs sufficiently far from catalog sources."""
+        required_columns = set(self.BASIC_COLUMNS).union(self.ADVANCED_COLUMNS)
+        if not required_columns.issubset(statistics.columns):
+            raise ValueError("basic and advanced columns must exist in statistics")
+
+        quality_mask = (
+            statistics["n_subruns"].gt(0)
+            & statistics["n_flatfield"].ge(1)
+            & statistics["n_pedestal"].ge(1)
+            & statistics["pointing_dec_std"].le(self.max_pointing_dec_std)
+        )
+        filtered = self.apply_advanced_cuts(statistics.loc[quality_mask])
+
+        from ..catalog import load_hawc_sources, load_hess_sources, load_lhaaso_sources
+
+        pointing = SkyCoord(
+            ra=filtered["mean_ra"].to_numpy() * u.Unit("deg"),
+            dec=filtered["mean_dec"].to_numpy() * u.Unit("deg"),
+        )
+        pointing_mask = np.ones(len(filtered), dtype=bool)
+        sources = load_hess_sources() + load_lhaaso_sources() + load_hawc_sources()
+        for source in sources:
+            min_distance = 2.5 * source.extension.to_value("deg") if source.extension is not None else 0
+            pointing_mask &= pointing.separation(source.coord) > (min_distance + min_extra_distance) * u.Unit("deg")
+        pointing_mask &= np.abs(pointing.galactic.b) > min_galactic_b * u.Unit("deg")
+
+        return filtered.loc[pointing_mask, "run_number"].tolist()
