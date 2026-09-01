@@ -27,8 +27,7 @@ def plot_energy_slices(
 ) -> tuple[Figure, np.ndarray]:
     """Plot one sky-offset count map for every stored energy bin.
 
-    All panels use the same color scale, making their absolute event counts
-    directly comparable.
+    Each panel uses its own color scale and color bar.
     """
     if not isinstance(max_columns, int) or max_columns < 1:
         raise ValueError("max_columns must be a positive integer")
@@ -50,15 +49,15 @@ def plot_energy_slices(
     axes = flat_axes[:energy_bin_count]
 
     values = image.histogram.values()
-    maximum = float(np.max(values, initial=0))
-    normalization = Normalize(vmin=0, vmax=max(maximum, 1))
-    mesh = None
 
     for energy_index, axis in enumerate(axes):
+        slice_values = values[:, :, energy_index]
+        maximum = float(np.max(slice_values, initial=0))
+        normalization = Normalize(vmin=0, vmax=max(maximum, 1))
         mesh = axis.pcolormesh(
             image.x_edges,
             image.y_edges,
-            values[:, :, energy_index].T,
+            slice_values.T,
             cmap=cmap,
             norm=normalization,
             shading="flat",
@@ -69,12 +68,10 @@ def plot_energy_slices(
             ylabel="Sky-offset latitude [deg]",
         )
         axis.set_aspect("equal")
+        figure.colorbar(mesh, ax=axis, label="Events", shrink=0.9)
 
     for unused_axis in flat_axes[energy_bin_count:]:
         unused_axis.remove()
-
-    if mesh is not None:
-        figure.colorbar(mesh, ax=axes.tolist(), label="Events", shrink=0.9)
 
     return figure, axes
 
