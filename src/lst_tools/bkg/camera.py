@@ -91,7 +91,7 @@ class CameraImage:
     def fill(self, events: pd.DataFrame) -> None:
         """Transform and add reconstructed events to the histogram.
 
-        The ``reco_alt`` and ``reco_az`` columns are interpreted as degrees,
+        The DL2 ``reco_alt`` and ``reco_az`` columns are interpreted as radians,
         and ``reco_energy`` is interpreted as TeV.
         """
         missing_columns = [column for column in self.REQUIRED_COLUMNS if column not in events.columns]
@@ -100,8 +100,8 @@ class CameraImage:
             raise ValueError(f"events must contain the following columns: {missing}")
 
         directions = SkyCoord(
-            alt=np.asarray(events["reco_alt"], dtype=float) * u.deg,
-            az=np.asarray(events["reco_az"], dtype=float) * u.deg,
+            alt=np.asarray(events["reco_alt"], dtype=float) * u.rad,
+            az=np.asarray(events["reco_az"], dtype=float) * u.rad,
             frame=self.center.frame,
         )
         offsets = directions.transform_to(self.telescope_frame)

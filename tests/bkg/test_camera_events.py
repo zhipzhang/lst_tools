@@ -3,9 +3,9 @@ import numpy as np
 import pandas as pd
 import pytest
 from astropy.coordinates import SkyCoord, SkyOffsetFrame
-from lst_tools.bkg.events import CameraEvents
 
 from lst_tools.bkg.camera import CameraImage
+from lst_tools.bkg.events import CameraEvents
 
 
 @pytest.fixture
@@ -27,8 +27,8 @@ def events(pointing):
     return pd.DataFrame(
         {
             "event_id": [10, 11, 12, 13, 14, 15],
-            "reco_alt": horizontal.alt.to_value(u.deg),
-            "reco_az": horizontal.az.to_value(u.deg),
+            "reco_alt": horizontal.alt.to_value(u.rad),
+            "reco_az": horizontal.az.to_value(u.rad),
             "reco_energy": [0.2, 0.8, 1.5, 6, 3, 2],
             "gammaness": [0.9, 0.8, 0.7, 0.6, 0.5, 0.4],
         },
@@ -100,6 +100,19 @@ def test_to_image_can_apply_different_energy_bins(camera_events):
 def test_radius_remains_available_for_each_event(camera_events):
     assert camera_events.radius.unit == u.deg
     np.testing.assert_allclose(camera_events.radius.to_value(u.deg), [0.8, 0.2, 0.2, 0.8, 0, 2], atol=1e-12)
+
+
+def test_radius_is_an_exact_spherical_separation(pointing):
+    camera_events = CameraEvents(
+        center=pointing,
+        x=[1] * u.deg,
+        y=[1] * u.deg,
+        energy=[1] * u.TeV,
+    )
+    event = SkyCoord(ra=1 * u.deg, dec=1 * u.deg, frame="icrs")
+    center = SkyCoord(ra=0 * u.deg, dec=0 * u.deg, frame="icrs")
+
+    assert camera_events.radius[0] == event.separation(center)
 
 
 def test_select_energy_preserves_events_in_requested_interval(camera_events):

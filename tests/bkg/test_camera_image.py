@@ -30,8 +30,8 @@ def sample_events(camera):
 
     return pd.DataFrame(
         {
-            "reco_alt": horizontal.alt.to_value(u.deg),
-            "reco_az": horizontal.az.to_value(u.deg),
+            "reco_alt": horizontal.alt.to_value(u.rad),
+            "reco_az": horizontal.az.to_value(u.rad),
             "reco_energy": [0.5, 5, 0.5, 5, 20],
         }
     )

@@ -5,7 +5,7 @@ from collections.abc import Iterable
 import astropy.units as u
 import numpy as np
 import pandas as pd
-from astropy.coordinates import SkyCoord, SkyOffsetFrame
+from astropy.coordinates import SkyCoord, SkyOffsetFrame, angular_separation
 
 from .camera import CameraImage
 
@@ -80,8 +80,9 @@ class CameraEvents:
     def from_dataframe(cls, events: pd.DataFrame, center: SkyCoord) -> "CameraEvents":
         """Transform reconstructed Alt/Az columns into sky offsets.
 
-        Altitude and azimuth values are interpreted as degrees, while energy
-        values are interpreted as TeV. The input DataFrame is not modified.
+        DL2 altitude and azimuth values are interpreted as radians, while
+        energy values are interpreted as TeV. The input DataFrame is not
+        modified.
         """
         missing_columns = [column for column in cls.REQUIRED_COLUMNS if column not in events.columns]
         if missing_columns:
@@ -89,8 +90,8 @@ class CameraEvents:
             raise ValueError(f"events must contain the following columns: {missing}")
 
         directions = SkyCoord(
-            alt=np.asarray(events["reco_alt"], dtype=float) * u.deg,
-            az=np.asarray(events["reco_az"], dtype=float) * u.deg,
+            alt=np.asarray(events["reco_alt"], dtype=float) * u.rad,
+            az=np.asarray(events["reco_az"], dtype=float) * u.rad,
             frame=center.frame,
         )
         offsets = directions.transform_to(SkyOffsetFrame(origin=center))
@@ -107,8 +108,8 @@ class CameraEvents:
 
     @property
     def radius(self) -> u.Quantity:
-        """Angular radius of every event in the sky-offset plane."""
-        return np.hypot(self.x, self.y)
+        """Exact angular separation of every event from the pointing center."""
+        return angular_separation(0 * u.deg, 0 * u.deg, self.x, self.y).to(u.deg)
 
     def select_energy(
         self,
