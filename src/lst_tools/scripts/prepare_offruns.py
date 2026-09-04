@@ -1,4 +1,4 @@
-"""Select catalog-separated off runs and prepare their DataCheck and DL2 files."""
+"""Select catalog-separated off runs and prepare their DataCheck and optional data links."""
 
 import argparse
 from collections import Counter
@@ -48,26 +48,49 @@ def select_offruns(
     )
 
 
+def create_data_links(
+    selected_runs: pd.DataFrame,
+    output_dir: Path,
+    level: str,
+    path_finder=find_lst_data_path,
+) -> Counter:
+    """Create idempotent DL1 or DL2 links for the selected off runs."""
+    level = level.lower()
+    if level not in {"dl1", "dl2"}:
+        raise ValueError(f"Unsupported data level: {level}")
+
+    output_dir.mkdir(parents=True, exist_ok=True)
+    counts = Counter()
+
+    for row in selected_runs.itertuples(index=False):
+        source_name = path_finder(int(row.date), int(row.run_number), level=level)
+        if not source_name:
+            counts[f"{level}:missing"] += 1
+            continue
+
+        source = Path(source_name)
+        status = create_safe_link(source, output_dir / source.name)
+        counts[f"{level}:{status}"] += 1
+
+    return counts
+
+
+def create_dl1_links(
+    selected_runs: pd.DataFrame,
+    output_dir: Path,
+    path_finder=find_lst_data_path,
+) -> Counter:
+    """Create idempotent DL1 links for the selected off runs."""
+    return create_data_links(selected_runs, output_dir, "dl1", path_finder)
+
+
 def create_dl2_links(
     selected_runs: pd.DataFrame,
     output_dir: Path,
     path_finder=find_lst_data_path,
 ) -> Counter:
     """Create idempotent DL2 links for the selected off runs."""
-    output_dir.mkdir(parents=True, exist_ok=True)
-    counts = Counter()
-
-    for row in selected_runs.itertuples(index=False):
-        source_name = path_finder(int(row.date), int(row.run_number), level="dl2")
-        if not source_name:
-            counts["dl2:missing"] += 1
-            continue
-
-        source = Path(source_name)
-        status = create_safe_link(source, output_dir / source.name)
-        counts[f"dl2:{status}"] += 1
-
-    return counts
+    return create_data_links(selected_runs, output_dir, "dl2", path_finder)
 
 
 def load_offrun_sources() -> tuple[CatalogSource, ...]:
@@ -110,6 +133,18 @@ def build_parser() -> argparse.ArgumentParser:
         default=2.5,
         help="Multiplier applied to catalog source extensions (default: 2.5)",
     )
+    parser.add_argument(
+        "--with-dl1",
+        "--with-dl",
+        dest="with_dl1",
+        action="store_true",
+        help="Create links to selected off-run DL1 files",
+    )
+    parser.add_argument(
+        "--with-dl2",
+        action="store_true",
+        help="Create links to selected off-run DL2 files",
+    )
     return parser
 
 
@@ -140,7 +175,11 @@ def main() -> None:
 
     output_root = args.output.resolve()
     datacheck_file = save_datacheck_file(tables, selected_runs, output_root / "data_check")
-    counts = create_dl2_links(selected_runs, output_root / "dl2")
+    counts = Counter()
+    if args.with_dl1:
+        counts.update(create_dl1_links(selected_runs, output_root / "dl1"))
+    if args.with_dl2:
+        counts.update(create_dl2_links(selected_runs, output_root / "dl2"))
 
     print(f"Selected {len(selected_runs)} off runs")
     print(f"DataCheck: {datacheck_file}")

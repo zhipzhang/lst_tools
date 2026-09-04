@@ -86,12 +86,15 @@ sources:
 ```bash
 prepare-offruns config/config.toml \
   --output /path/to/offruns \
+  --with-dl1 \
+  --with-dl2 \
   --min-separation 3 \
   --extension-factor 2.5
 ```
 
-This creates `data_check/DL1_datacheck_offruns.h5` and idempotent links under
-`dl2/`.
+This always creates `data_check/DL1_datacheck_offruns.h5`. Pass `--with-dl1`
+(`--with-dl` is an alias) and/or `--with-dl2` to create idempotent links under
+`dl1/` and/or `dl2/`. When neither option is given, no data links are created.
 
 ## Layout
 

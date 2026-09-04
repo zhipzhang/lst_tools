@@ -1,10 +1,13 @@
 import astropy.units as u
 import pandas as pd
+import pytest
 from astropy.coordinates import SkyCoord
 
 from lst_tools.catalog import CatalogSource
 from lst_tools.datacheck import DataCheckTables, DataFilter
 from lst_tools.scripts.prepare_offruns import (
+    build_parser,
+    create_dl1_links,
     create_dl2_links,
     save_datacheck_file,
     select_offruns,
@@ -53,23 +56,44 @@ def test_select_offruns_applies_advanced_cuts_but_not_source_angle_cut():
     assert selected["run_number"].tolist() == [1]
 
 
-def test_create_dl2_links_is_idempotent(tmp_path):
-    source = tmp_path / "source" / "dl2_LST-1.Run00001.h5"
+@pytest.mark.parametrize(
+    ("level", "create_links"),
+    [("dl1", create_dl1_links), ("dl2", create_dl2_links)],
+)
+def test_create_data_links_is_idempotent(tmp_path, level, create_links):
+    source = tmp_path / "source" / f"{level}_LST-1.Run00001.h5"
     source.parent.mkdir()
     source.touch()
     selected = pd.DataFrame({"run_number": [1], "date": [20240101]})
 
     def find_path(date, run_number, level):
-        assert (date, run_number, level) == (20240101, 1, "dl2")
+        assert (date, run_number, level) == (20240101, 1, source.name[:3])
         return str(source)
 
-    output = tmp_path / "offruns" / "dl2"
-    first = create_dl2_links(selected, output, path_finder=find_path)
-    second = create_dl2_links(selected, output, path_finder=find_path)
+    output = tmp_path / "offruns" / level
+    first = create_links(selected, output, path_finder=find_path)
+    second = create_links(selected, output, path_finder=find_path)
 
-    assert first == {"dl2:created": 1}
-    assert second == {"dl2:existing": 1}
+    assert first == {f"{level}:created": 1}
+    assert second == {f"{level}:existing": 1}
     assert (output / source.name).resolve() == source.resolve()
+
+
+@pytest.mark.parametrize(
+    ("options", "with_dl1", "with_dl2"),
+    [
+        ([], False, False),
+        (["--with-dl1"], True, False),
+        (["--with-dl"], True, False),
+        (["--with-dl2"], False, True),
+        (["--with-dl1", "--with-dl2"], True, True),
+    ],
+)
+def test_data_link_cli_options_are_independent(options, with_dl1, with_dl2):
+    args = build_parser().parse_args(["config.toml", "--output", "offruns", *options])
+
+    assert args.with_dl1 is with_dl1
+    assert args.with_dl2 is with_dl2
 
 
 def test_save_datacheck_file_contains_only_selected_runs(tmp_path):

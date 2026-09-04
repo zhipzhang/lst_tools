@@ -1,6 +1,5 @@
 from pathlib import Path
 
-import numpy as np
 import pandas as pd
 import pytest
 
@@ -13,9 +12,6 @@ def patched_dl2_io(monkeypatch):
     events = pd.DataFrame(
         {
             "intensity": [100.0, 150.0, 200.0],
-            "alt_tel": [1.0, 1.1, 1.2],
-            # The middle-event convention remains correct across the 2π wrap.
-            "az_tel": [2 * np.pi - 0.01, 0.0001, 0.01],
         }
     )
     provenance = {
@@ -48,16 +44,13 @@ def patched_dl2_io(monkeypatch):
     return events, calls
 
 
-def test_loads_events_pointing_and_provenance(patched_dl2_io):
+def test_loads_events_and_provenance(patched_dl2_io):
     events, calls = patched_dl2_io
     filename = Path("/data/dl2_LST-1.Run00042.h5")
 
     table = LSTDL2EventTable(filename)
 
     assert table.run_id == 42
-    assert table.pointing_alt == pytest.approx(1.1)
-    assert table.pointing_az == pytest.approx(0.0001)
-    assert table.pointing_zen == pytest.approx(np.pi / 2 - 1.1)
     assert table.data is events
     assert table.t_eff == pytest.approx(12.5)
     assert table.t_elapsed == pytest.approx(15.0)
@@ -73,6 +66,17 @@ def test_parses_processing_metadata(patched_dl2_io):
     assert table.intensity_cuts == pytest.approx(30.0)
 
 
+@pytest.mark.parametrize(
+    ("directory_name", "expected"),
+    [("dec_931", 931), ("dec_2276", 2276), ("dec_min_413", -413), ("dec_min_1802", -1802)],
+)
+def test_parses_declination_line(directory_name, expected):
+    table = object.__new__(LSTDL2EventTable)
+    table.model_directory = f"/models/nsb_tuning_0.81/{directory_name}"
+
+    assert table.dec_line == expected
+
+
 def test_rejects_filename_without_run_number_before_reading_file(monkeypatch):
     def unexpected_read(*args, **kwargs):
         pytest.fail("DL2 file should not be read when its run number is invalid")
@@ -81,17 +85,3 @@ def test_rejects_filename_without_run_number_before_reading_file(monkeypatch):
 
     with pytest.raises(ValueError, match="run number"):
         LSTDL2EventTable("/data/dl2_without_run_number.h5")
-
-
-@pytest.mark.parametrize(
-    ("events", "message"),
-    [
-        (pd.DataFrame(), "contains no events"),
-        (pd.DataFrame({"alt_tel": [1.0]}), "missing required columns"),
-    ],
-)
-def test_rejects_dl2_data_without_pointing(events, message, monkeypatch):
-    monkeypatch.setattr(dl2table_module.pd, "read_hdf", lambda *args, **kwargs: events)
-
-    with pytest.raises(ValueError, match=message):
-        LSTDL2EventTable("/data/dl2_LST-1.Run00042.h5")
