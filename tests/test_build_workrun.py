@@ -15,6 +15,7 @@ from lst_tools.scripts.build_workrun import (
     find_tailcuts_level,
     find_target_dl2_file,
     reconstruct_off_runs,
+    seasonal_day_of_year,
     select_matching_off_runs,
     write_workrun_config,
 )
@@ -58,7 +59,7 @@ def test_select_matching_off_runs_excludes_target():
         42,
         nsb_relative_tolerance=0.1,
         zenith_tolerance_deg=2,
-        month_day_tolerance=300,
+        date_tolerance_days=90,
     )
 
     assert selected["run_number"].tolist() == [43]
@@ -66,6 +67,36 @@ def test_select_matching_off_runs_excludes_target():
     assert bounds.nsb_max == pytest.approx(2.2)
     assert bounds.zenith_min_deg == pytest.approx(28)
     assert bounds.zenith_max_deg == pytest.approx(32)
+
+
+def test_seasonal_date_selection_uses_calendar_days_and_wraps_new_year():
+    statistics = pd.DataFrame(
+        {
+            "run_number": [42, 43, 44, 45],
+            "date": [20241231, 20250101, 20240301, 20240930],
+            "mean_cos_zd": [0.8, 0.8, 0.8, 0.8],
+            "mean_diffuse_nsb_std": [2.0, 2.0, 2.0, 2.0],
+        }
+    )
+
+    selected, bounds = select_matching_off_runs(
+        statistics,
+        42,
+        nsb_relative_tolerance=0.1,
+        zenith_tolerance_deg=2,
+        date_tolerance_days=90,
+    )
+
+    assert selected["run_number"].tolist() == [43, 44]
+    assert bounds.target_day_of_year == 366
+    assert bounds.date_tolerance_days == 90
+
+
+def test_seasonal_day_of_year_uses_a_common_leap_year():
+    result = seasonal_day_of_year(pd.Series([20240228, 20240229, 20250301, 20251301]))
+
+    assert result.iloc[:3].tolist() == [59, 60, 61]
+    assert np.isnan(result.iloc[3])
 
 
 def test_find_compatible_offrun_files_checks_resolved_tailcuts(tmp_path):
@@ -186,7 +217,7 @@ def test_build_workrun_start_creates_links_and_config(tmp_path, monkeypatch):
         intensity_cuts=80,
     )
     tool.matching_off_runs = pd.DataFrame({"run_number": []}, dtype=int)
-    tool.selection_bounds = OffRunSelectionBounds(0.72, 0.90, 28, 32, -85, 515)
+    tool.selection_bounds = OffRunSelectionBounds(0.72, 0.90, 28, 32, 46, 90)
     tool.offrun_dl1_files = []
     tool.irf_nodes = [
         IRFNode(
@@ -215,3 +246,5 @@ def test_build_workrun_start_creates_links_and_config(tmp_path, monkeypatch):
     assert config["target"]["tailcuts"] == [10, 5]
     assert config["irf"]["node_count"] == 1
     assert config["irf"]["linked_nodes"] == [str(irf_node_link)]
+    assert config["offrun_selection"]["date_tolerance_days"] == 90
+    assert config["offrun_selection"]["target_day_of_year"] == 46

@@ -37,8 +37,8 @@ class OffRunSelectionBounds:
     nsb_max: float
     zenith_min_deg: float
     zenith_max_deg: float
-    month_day_min: int
-    month_day_max: int
+    target_day_of_year: int
+    date_tolerance_days: int
 
 
 def find_tailcuts_level(path: str | Path) -> tuple[int, int] | None:
@@ -82,15 +82,27 @@ def find_datacheck_files(data_check_path: str | Path) -> list[Path]:
     return [path.resolve() for path in files]
 
 
+def seasonal_day_of_year(dates: pd.Series) -> pd.Series:
+    """Convert YYYYMMDD values to day-of-year values in a common leap year."""
+    numeric_dates = pd.to_numeric(dates, errors="coerce").astype("Int64")
+    parsed_dates = pd.to_datetime(numeric_dates.astype("string"), format="%Y%m%d", errors="coerce")
+    reference_dates = pd.to_datetime(
+        "2000" + parsed_dates.dt.strftime("%m%d").fillna(""),
+        format="%Y%m%d",
+        errors="coerce",
+    )
+    return reference_dates.dt.dayofyear.astype(float)
+
+
 def select_matching_off_runs(
     statistics: pd.DataFrame,
     run_number: int,
     *,
     nsb_relative_tolerance: float,
     zenith_tolerance_deg: float,
-    month_day_tolerance: int,
+    date_tolerance_days: int,
 ) -> tuple[pd.DataFrame, OffRunSelectionBounds]:
-    """Select runs within the configured NSB, zenith, and calendar bounds."""
+    """Select runs within the configured NSB, zenith, and seasonal date bounds."""
     required_columns = {"run_number", "date", "mean_cos_zd", "mean_diffuse_nsb_std"}
     missing_columns = required_columns.difference(statistics.columns)
     if missing_columns:
@@ -108,23 +120,27 @@ def select_matching_off_runs(
     if not np.isfinite(target_nsb) or not np.isfinite(target_cos_zenith):
         raise ToolConfigurationError(f"Run{run_number:05d} has invalid NSB or zenith statistics")
     target_zenith_deg = float(np.degrees(np.arccos(target_cos_zenith)))
-    target_month_day = int(target["date"]) % 10000
+    target_day_of_year = seasonal_day_of_year(pd.Series([target["date"]])).iloc[0]
+    if not np.isfinite(target_day_of_year):
+        raise ToolConfigurationError(f"Run{run_number:05d} has an invalid DataCheck date: {target['date']}")
 
     bounds = OffRunSelectionBounds(
         nsb_min=target_nsb * (1 - nsb_relative_tolerance),
         nsb_max=target_nsb * (1 + nsb_relative_tolerance),
         zenith_min_deg=max(0.0, target_zenith_deg - zenith_tolerance_deg),
         zenith_max_deg=min(180.0, target_zenith_deg + zenith_tolerance_deg),
-        month_day_min=target_month_day - month_day_tolerance,
-        month_day_max=target_month_day + month_day_tolerance,
+        target_day_of_year=int(target_day_of_year),
+        date_tolerance_days=date_tolerance_days,
     )
 
     zenith_deg = np.degrees(np.arccos(statistics["mean_cos_zd"].clip(-1, 1)))
-    month_day = statistics["date"].astype(int) % 10000
+    day_of_year = seasonal_day_of_year(statistics["date"])
+    direct_date_distance = (day_of_year - bounds.target_day_of_year).abs()
+    seasonal_date_distance = direct_date_distance.where(direct_date_distance <= 183, 366 - direct_date_distance)
     selection_mask = (
         statistics["mean_diffuse_nsb_std"].between(bounds.nsb_min, bounds.nsb_max)
         & zenith_deg.between(bounds.zenith_min_deg, bounds.zenith_max_deg)
-        & month_day.between(bounds.month_day_min, bounds.month_day_max)
+        & seasonal_date_distance.le(bounds.date_tolerance_days)
         & statistics["run_number"].ne(run_number)
     )
     return statistics.loc[selection_mask].copy(), bounds
@@ -258,9 +274,9 @@ class BuildWorkRun(Tool):
         default_value=0.1,
         help="Maximum fractional NSB difference for off runs",
     ).tag(config=True)
-    month_day_tolerance = traits.Int(
-        default_value=300,
-        help="Allowed numeric MMDD difference for off runs",
+    date_tolerance_days = traits.Int(
+        default_value=90,
+        help="Maximum seasonal calendar-day difference for off runs",
     ).tag(config=True)
     gh_efficiency = traits.Float(default_value=0.7, help="Gamma efficiency used for IRF generation").tag(config=True)
 
@@ -274,7 +290,7 @@ class BuildWorkRun(Tool):
         ("o", "output", "output-dir"): "BuildWorkRun.output_dir",
         ("zenith-off", "zenith-tolerance"): "BuildWorkRun.zenith_tolerance_deg",
         ("nsb-level-off", "nsb-tolerance"): "BuildWorkRun.nsb_relative_tolerance",
-        ("month-day-tolerance",): "BuildWorkRun.month_day_tolerance",
+        ("date-tolerance-days", "month-day-tolerance"): "BuildWorkRun.date_tolerance_days",
         ("gh-efficiency",): "BuildWorkRun.gh_efficiency",
     }
 
@@ -285,8 +301,8 @@ class BuildWorkRun(Tool):
             raise ToolConfigurationError("nsb_relative_tolerance must be between 0 and 1")
         if self.zenith_tolerance_deg < 0:
             raise ToolConfigurationError("zenith_tolerance_deg must be non-negative")
-        if self.month_day_tolerance < 0:
-            raise ToolConfigurationError("month_day_tolerance must be non-negative")
+        if not 0 <= self.date_tolerance_days <= 183:
+            raise ToolConfigurationError("date_tolerance_days must be between 0 and 183")
         if not 0 < self.gh_efficiency <= 1:
             raise ToolConfigurationError("gh_efficiency must be in the interval (0, 1]")
 
@@ -304,10 +320,12 @@ class BuildWorkRun(Tool):
             self.run_number,
             nsb_relative_tolerance=self.nsb_relative_tolerance,
             zenith_tolerance_deg=self.zenith_tolerance_deg,
-            month_day_tolerance=self.month_day_tolerance,
+            date_tolerance_days=self.date_tolerance_days,
         )
         if self.matching_off_runs.empty:
-            self.log.warning("No off runs matched the NSB, zenith, and MMDD selection bounds; offdl2 will be empty")
+            self.log.warning(
+                "No off runs matched the NSB, zenith, and seasonal date selection bounds; offdl2 will be empty"
+            )
         self.offrun_dl1_files = find_compatible_offrun_dl1_files(
             self.offrun_dl1_path,
             self.matching_off_runs["run_number"].astype(int).tolist(),
@@ -372,9 +390,8 @@ class BuildWorkRun(Tool):
                     "zenith_tolerance_deg": self.zenith_tolerance_deg,
                     "zenith_min_deg": self.selection_bounds.zenith_min_deg,
                     "zenith_max_deg": self.selection_bounds.zenith_max_deg,
-                    "month_day_tolerance": self.month_day_tolerance,
-                    "month_day_min": self.selection_bounds.month_day_min,
-                    "month_day_max": self.selection_bounds.month_day_max,
+                    "date_tolerance_days": self.date_tolerance_days,
+                    "target_day_of_year": self.selection_bounds.target_day_of_year,
                     "matching_run_numbers": self.matching_off_runs["run_number"].astype(int).tolist(),
                     "compatible_dl1_files": self.offrun_dl1_files,
                     "generated_dl2_files": generated_offrun_dl2_files,
