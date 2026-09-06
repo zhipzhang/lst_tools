@@ -115,6 +115,9 @@ build-workrun --run 12345 \
 Candidate DL1 links are resolved to their source paths before their tailcuts
 are compared with the target DL2 provenance. Mismatches and broken links are
 reported and skipped. Existing generated DL2 and IRF files are reused safely.
+Use `--allow-mismatched-tailcuts` to include mismatched files when needed;
+matching tailcuts remain required by default. The generated `workrun.toml`
+records this choice in its `[offrun_tailcuts]` section.
 Target-run statistics come from `--data-check-path`; candidate statistics come
 from the separate `--offrun-data-check-path`.
 Off runs must fall within a true ±90-day seasonal window by default, including

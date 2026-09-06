@@ -120,6 +120,30 @@ def test_find_compatible_offrun_files_checks_resolved_tailcuts(tmp_path):
     assert result == [compatible_source.resolve()]
 
 
+def test_find_compatible_offrun_files_can_allow_mismatched_tailcuts(tmp_path):
+    expected_source = tmp_path / "source" / "tailcut1005" / "dl1_LST-1.Run00043.h5"
+    mismatched_source = tmp_path / "source" / "tailcut84" / "dl1_LST-1.Run00044.h5"
+    expected_source.parent.mkdir(parents=True)
+    mismatched_source.parent.mkdir(parents=True)
+    expected_source.touch()
+    mismatched_source.touch()
+
+    links = tmp_path / "offruns"
+    links.mkdir()
+    (links / expected_source.name).symlink_to(expected_source)
+    (links / mismatched_source.name).symlink_to(mismatched_source)
+
+    with pytest.warns(UserWarning, match="including because mismatches are allowed"):
+        result = find_compatible_offrun_dl1_files(
+            links,
+            [43, 44],
+            (10, 5),
+            require_matching_tailcuts=False,
+        )
+
+    assert result == [expected_source.resolve(), mismatched_source.resolve()]
+
+
 def test_reconstruct_off_runs_uses_model_and_skips_existing_outputs(tmp_path, monkeypatch):
     first = tmp_path / "dl1_LST-1.Run00043.h5"
     second = tmp_path / "dl1_LST-1.Run00044.h5"
@@ -209,6 +233,7 @@ def test_build_workrun_start_creates_links_and_config(tmp_path, monkeypatch):
         output_dir=tmp_path / "workdir",
         irf_output_dir=tmp_path / "shared_irfs",
         mc_dl2_path=tmp_path / "mc",
+        require_matching_tailcuts=False,
     )
     tool.target_dl2_file = target_dl2.resolve()
     tool.target_dl2_table = SimpleNamespace(
@@ -254,3 +279,7 @@ def test_build_workrun_start_creates_links_and_config(tmp_path, monkeypatch):
     assert config["offrun_selection"]["date_tolerance_days"] == 90
     assert config["offrun_selection"]["target_day_of_year"] == 46
     assert config["offrun_selection"]["data_check_files"] == [str(tmp_path / "offrun_datacheck.h5")]
+    assert config["offrun_tailcuts"] == {
+        "require_matching_tailcuts": False,
+        "target_tailcuts": [10, 5],
+    }

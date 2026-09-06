@@ -152,8 +152,10 @@ def find_compatible_offrun_dl1_files(
     offrun_dl1_path: str | Path,
     run_numbers: list[int],
     expected_tailcuts: tuple[int, int],
+    *,
+    require_matching_tailcuts: bool = True,
 ) -> list[Path]:
-    """Find off-run DL1 files whose resolved paths have matching tailcuts."""
+    """Find off-run DL1 files, optionally requiring matching tailcuts."""
     search_path = Path(offrun_dl1_path).expanduser()
     compatible_files: list[Path] = []
     seen_sources: set[Path] = set()
@@ -177,11 +179,13 @@ def find_compatible_offrun_dl1_files(
 
             tailcuts = find_tailcuts_level(source_path)
             if tailcuts != expected_tailcuts:
+                action = "skipping" if require_matching_tailcuts else "including because mismatches are allowed"
                 warnings.warn(
-                    f"Tailcuts mismatch for {linked_path}: found {tailcuts}, expected {expected_tailcuts}; skipping",
+                    f"Tailcuts mismatch for {linked_path}: found {tailcuts}, expected {expected_tailcuts}; {action}",
                     stacklevel=2,
                 )
-                continue
+                if require_matching_tailcuts:
+                    continue
             if source_path not in seen_sources:
                 compatible_files.append(source_path)
                 seen_sources.add(source_path)
@@ -284,6 +288,10 @@ class BuildWorkRun(Tool):
         default_value=90,
         help="Maximum seasonal calendar-day difference for off runs",
     ).tag(config=True)
+    require_matching_tailcuts = traits.Bool(
+        default_value=True,
+        help="Require off-run DL1 files to have the same tailcuts as the target DL2",
+    ).tag(config=True)
     gh_efficiency = traits.Float(default_value=0.7, help="Gamma efficiency used for IRF generation").tag(config=True)
 
     aliases: ClassVar[dict[tuple[str, ...], str]] = {
@@ -299,6 +307,16 @@ class BuildWorkRun(Tool):
         ("nsb-level-off", "nsb-tolerance"): "BuildWorkRun.nsb_relative_tolerance",
         ("date-tolerance-days", "month-day-tolerance"): "BuildWorkRun.date_tolerance_days",
         ("gh-efficiency",): "BuildWorkRun.gh_efficiency",
+    }
+    flags: ClassVar[dict[str, tuple[dict[str, dict[str, bool]], str]]] = {
+        "require-matching-tailcuts": (
+            {"BuildWorkRun": {"require_matching_tailcuts": True}},
+            "Reject off-run DL1 files whose tailcuts differ from the target (default)",
+        ),
+        "allow-mismatched-tailcuts": (
+            {"BuildWorkRun": {"require_matching_tailcuts": False}},
+            "Allow off-run DL1 files whose tailcuts differ from the target",
+        ),
     }
 
     def setup(self) -> None:
@@ -340,11 +358,13 @@ class BuildWorkRun(Tool):
             self.offrun_dl1_path,
             self.matching_off_runs["run_number"].astype(int).tolist(),
             self.target_dl2_table.tailcut_level,
+            require_matching_tailcuts=self.require_matching_tailcuts,
         )
         if not self.offrun_dl1_files and not self.matching_off_runs.empty:
+            failed_checks = "discovery and tailcut checks" if self.require_matching_tailcuts else "DL1 discovery"
             self.log.warning(
-                "Off runs matched the DataCheck selection, but no DL1 files passed discovery and tailcut checks; "
-                "offdl2 will be empty"
+                "Off runs matched the DataCheck selection, but no files passed %s; offdl2 will be empty",
+                failed_checks,
             )
         self.irf_nodes = find_dl2_mc_path(
             self.mc_dl2_path,
@@ -407,6 +427,10 @@ class BuildWorkRun(Tool):
                     "matching_run_numbers": self.matching_off_runs["run_number"].astype(int).tolist(),
                     "compatible_dl1_files": self.offrun_dl1_files,
                     "generated_dl2_files": generated_offrun_dl2_files,
+                },
+                "offrun_tailcuts": {
+                    "require_matching_tailcuts": self.require_matching_tailcuts,
+                    "target_tailcuts": list(self.target_dl2_table.tailcut_level or ()),
                 },
                 "irf": {
                     "mc_dl2_path": Path(self.mc_dl2_path).expanduser().resolve(),
