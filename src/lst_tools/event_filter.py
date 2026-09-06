@@ -1,9 +1,11 @@
 """Utilities for selecting events."""
 
 from collections.abc import Iterable
+from dataclasses import dataclass
 from itertools import pairwise
 from math import isnan
 
+import numpy as np
 import pandas as pd
 
 
@@ -88,3 +90,20 @@ def apply_energy_dependent_gammaness_cuts(
         selected |= in_energy_bin & data["gammaness"].ge(cut)
 
     return data.loc[selected]
+
+
+@dataclass
+class EventFilter:
+    intensity_cuts: float
+    energy_low: np.ndarray
+    energy_high: np.ndarray
+    gh_cuts: np.ndarray
+
+    @classmethod
+    def from_e_edges(cls, intensity_cuts: float, energy_edges: np.ndarray, gh_cuts: np.ndarray):
+        return cls(intensity_cuts, energy_edges[:-1], energy_edges[1:], gh_cuts)
+
+    def __call__(self, data: pd.DataFrame) -> pd.DataFrame:
+        after_gh_cuts = apply_energy_dependent_gammaness_cuts(data, self.energy_low, self.energy_high, self.gh_cuts)
+        after_intensity_cuts = after_gh_cuts.iloc[after_gh_cuts["intensity"].ge(self.intensity_cuts)]
+        return after_intensity_cuts
