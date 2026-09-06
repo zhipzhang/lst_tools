@@ -95,7 +95,8 @@ def seasonal_day_of_year(dates: pd.Series) -> pd.Series:
 
 
 def select_matching_off_runs(
-    statistics: pd.DataFrame,
+    target_statistics: pd.DataFrame,
+    offrun_statistics: pd.DataFrame,
     run_number: int,
     *,
     nsb_relative_tolerance: float,
@@ -104,11 +105,12 @@ def select_matching_off_runs(
 ) -> tuple[pd.DataFrame, OffRunSelectionBounds]:
     """Select runs within the configured NSB, zenith, and seasonal date bounds."""
     required_columns = {"run_number", "date", "mean_cos_zd", "mean_diffuse_nsb_std"}
-    missing_columns = required_columns.difference(statistics.columns)
-    if missing_columns:
-        raise ValueError(f"DataCheck statistics are missing columns: {sorted(missing_columns)}")
+    for name, statistics in (("target", target_statistics), ("off-run", offrun_statistics)):
+        missing_columns = required_columns.difference(statistics.columns)
+        if missing_columns:
+            raise ValueError(f"{name} DataCheck statistics are missing columns: {sorted(missing_columns)}")
 
-    target_rows = statistics.loc[statistics["run_number"].eq(run_number)]
+    target_rows = target_statistics.loc[target_statistics["run_number"].eq(run_number)]
     if target_rows.empty:
         raise ToolConfigurationError(f"Run{run_number:05d} is missing from the DataCheck statistics")
     if len(target_rows) > 1:
@@ -133,17 +135,17 @@ def select_matching_off_runs(
         date_tolerance_days=date_tolerance_days,
     )
 
-    zenith_deg = np.degrees(np.arccos(statistics["mean_cos_zd"].clip(-1, 1)))
-    day_of_year = seasonal_day_of_year(statistics["date"])
+    zenith_deg = np.degrees(np.arccos(offrun_statistics["mean_cos_zd"].clip(-1, 1)))
+    day_of_year = seasonal_day_of_year(offrun_statistics["date"])
     direct_date_distance = (day_of_year - bounds.target_day_of_year).abs()
     seasonal_date_distance = direct_date_distance.where(direct_date_distance <= 183, 366 - direct_date_distance)
     selection_mask = (
-        statistics["mean_diffuse_nsb_std"].between(bounds.nsb_min, bounds.nsb_max)
+        offrun_statistics["mean_diffuse_nsb_std"].between(bounds.nsb_min, bounds.nsb_max)
         & zenith_deg.between(bounds.zenith_min_deg, bounds.zenith_max_deg)
         & seasonal_date_distance.le(bounds.date_tolerance_days)
-        & statistics["run_number"].ne(run_number)
+        & offrun_statistics["run_number"].ne(run_number)
     )
-    return statistics.loc[selection_mask].copy(), bounds
+    return offrun_statistics.loc[selection_mask].copy(), bounds
 
 
 def find_compatible_offrun_dl1_files(
@@ -254,7 +256,11 @@ class BuildWorkRun(Tool):
     dl2_path = traits.Path(default_value="./dl2", help="Target DL2 file or directory").tag(config=True)
     data_check_path = traits.Path(
         default_value="./data_check",
-        help="DataCheck HDF5 file or directory",
+        help="DataCheck HDF5 file or directory containing the target run",
+    ).tag(config=True)
+    offrun_data_check_path = traits.Path(
+        default_value="./offrun/datacheck",
+        help="DataCheck HDF5 file or directory containing off-run candidates",
     ).tag(config=True)
     offrun_dl1_path = traits.Path(
         default_value="./offruns/dl1",
@@ -284,6 +290,7 @@ class BuildWorkRun(Tool):
         ("r", "run", "run-number", "runnumber"): "BuildWorkRun.run_number",
         ("dl2", "dl2-path"): "BuildWorkRun.dl2_path",
         ("data-check", "data-check-path"): "BuildWorkRun.data_check_path",
+        ("offrun-data-check", "offrun-data-check-path"): "BuildWorkRun.offrun_data_check_path",
         ("offrun-dl1", "offrun-dl1-path"): "BuildWorkRun.offrun_dl1_path",
         ("mc-dl2", "mc-dl2-path"): "BuildWorkRun.mc_dl2_path",
         ("irf-output", "irf-output-dir"): "BuildWorkRun.irf_output_dir",
@@ -313,10 +320,13 @@ class BuildWorkRun(Tool):
         if self.target_dl2_table.tailcut_level is None:
             raise ToolConfigurationError(f"No tailcuts level found in {self.target_dl2_file} provenance")
 
-        data_check_files = find_datacheck_files(self.data_check_path)
-        self.data_check_tables = DataCheckTables.from_files([str(path) for path in data_check_files])
+        self.target_data_check_files = find_datacheck_files(self.data_check_path)
+        target_data_check_tables = DataCheckTables.from_files([str(path) for path in self.target_data_check_files])
+        self.offrun_data_check_files = find_datacheck_files(self.offrun_data_check_path)
+        offrun_data_check_tables = DataCheckTables.from_files([str(path) for path in self.offrun_data_check_files])
         self.matching_off_runs, self.selection_bounds = select_matching_off_runs(
-            self.data_check_tables.statistics,
+            target_data_check_tables.statistics,
+            offrun_data_check_tables.statistics,
             self.run_number,
             nsb_relative_tolerance=self.nsb_relative_tolerance,
             zenith_tolerance_deg=self.zenith_tolerance_deg,
@@ -377,6 +387,7 @@ class BuildWorkRun(Tool):
                     "run_number": self.run_number,
                     "dl2_file": self.target_dl2_file,
                     "dl2_link": target_link,
+                    "data_check_files": self.target_data_check_files,
                     "model_directory": self.target_dl2_table.model_directory,
                     "tailcuts": list(self.target_dl2_table.tailcut_level or ()),
                     "nsb_level": self.target_dl2_table.nsb_level,
@@ -392,6 +403,7 @@ class BuildWorkRun(Tool):
                     "zenith_max_deg": self.selection_bounds.zenith_max_deg,
                     "date_tolerance_days": self.date_tolerance_days,
                     "target_day_of_year": self.selection_bounds.target_day_of_year,
+                    "data_check_files": self.offrun_data_check_files,
                     "matching_run_numbers": self.matching_off_runs["run_number"].astype(int).tolist(),
                     "compatible_dl1_files": self.offrun_dl1_files,
                     "generated_dl2_files": generated_offrun_dl2_files,

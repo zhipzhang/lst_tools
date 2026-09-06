@@ -55,7 +55,8 @@ def test_select_matching_off_runs_excludes_target():
     )
 
     selected, bounds = select_matching_off_runs(
-        statistics,
+        statistics.iloc[[0]],
+        statistics.iloc[1:],
         42,
         nsb_relative_tolerance=0.1,
         zenith_tolerance_deg=2,
@@ -80,7 +81,8 @@ def test_seasonal_date_selection_uses_calendar_days_and_wraps_new_year():
     )
 
     selected, bounds = select_matching_off_runs(
-        statistics,
+        statistics.iloc[[0]],
+        statistics.iloc[1:],
         42,
         nsb_relative_tolerance=0.1,
         zenith_tolerance_deg=2,
@@ -216,6 +218,8 @@ def test_build_workrun_start_creates_links_and_config(tmp_path, monkeypatch):
         dec_line=2276,
         intensity_cuts=80,
     )
+    tool.target_data_check_files = [tmp_path / "target_datacheck.h5"]
+    tool.offrun_data_check_files = [tmp_path / "offrun_datacheck.h5"]
     tool.matching_off_runs = pd.DataFrame({"run_number": []}, dtype=int)
     tool.selection_bounds = OffRunSelectionBounds(0.72, 0.90, 28, 32, 46, 90)
     tool.offrun_dl1_files = []
@@ -243,8 +247,10 @@ def test_build_workrun_start_creates_links_and_config(tmp_path, monkeypatch):
     with (tool.workrun_dir / "workrun.toml").open("rb") as file_handle:
         config = tomllib.load(file_handle)
     assert config["target"]["run_number"] == 42
+    assert config["target"]["data_check_files"] == [str(tmp_path / "target_datacheck.h5")]
     assert config["target"]["tailcuts"] == [10, 5]
     assert config["irf"]["node_count"] == 1
     assert config["irf"]["linked_nodes"] == [str(irf_node_link)]
     assert config["offrun_selection"]["date_tolerance_days"] == 90
     assert config["offrun_selection"]["target_day_of_year"] == 46
+    assert config["offrun_selection"]["data_check_files"] == [str(tmp_path / "offrun_datacheck.h5")]

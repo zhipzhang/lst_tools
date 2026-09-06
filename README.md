@@ -105,6 +105,7 @@ Build the target DL2 link, matching off-run DL2 files, IRFs, and a reproducible
 build-workrun --run 12345 \
   --dl2-path /path/to/dl2 \
   --data-check-path /path/to/data_check \
+  --offrun-data-check-path /path/to/offrun/datacheck \
   --offrun-dl1-path /path/to/offruns/dl1 \
   --mc-dl2-path /path/to/mc/DL2/AllSky \
   --irf-output-dir /path/to/irfs \
@@ -114,6 +115,8 @@ build-workrun --run 12345 \
 Candidate DL1 links are resolved to their source paths before their tailcuts
 are compared with the target DL2 provenance. Mismatches and broken links are
 reported and skipped. Existing generated DL2 and IRF files are reused safely.
+Target-run statistics come from `--data-check-path`; candidate statistics come
+from the separate `--offrun-data-check-path`.
 Off runs must fall within a true ±90-day seasonal window by default, including
 correct month lengths and wrapping across New Year.
 Run-local IRFs are exposed directly as `irf/azimuth_<az>_zenith_<zd>` links;
