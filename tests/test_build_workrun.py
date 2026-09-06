@@ -205,10 +205,13 @@ def test_build_workrun_start_creates_links_and_config(tmp_path, monkeypatch):
 
     target_link = tool.workrun_dir / target_dl2.name
     assert target_link.resolve() == target_dl2.resolve()
-    irf_link = tool.workrun_dir / "irf" / tool.irf_nodes[0].path_name / "irf.fits.gz"
-    assert irf_link.resolve().is_file()
+    irf_node_link = tool.workrun_dir / "irf" / tool.irf_nodes[0].pointing_name
+    assert irf_node_link.is_symlink()
+    assert irf_node_link.resolve() == (Path(tool.irf_output_dir) / tool.irf_nodes[0].path_name).resolve()
+    assert (irf_node_link / "irf.fits.gz").is_file()
     with (tool.workrun_dir / "workrun.toml").open("rb") as file_handle:
         config = tomllib.load(file_handle)
     assert config["target"]["run_number"] == 42
     assert config["target"]["tailcuts"] == [10, 5]
     assert config["irf"]["node_count"] == 1
+    assert config["irf"]["linked_nodes"] == [str(irf_node_link)]

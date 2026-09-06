@@ -114,6 +114,9 @@ build-workrun --run 12345 \
 Candidate DL1 links are resolved to their source paths before their tailcuts
 are compared with the target DL2 provenance. Mismatches and broken links are
 reported and skipped. Existing generated DL2 and IRF files are reused safely.
+Run-local IRFs are exposed directly as `irf/azimuth_<az>_zenith_<zd>` links;
+the shared IRF store retains the full declination, intensity, and efficiency
+hierarchy.
 
 ## Layout
 

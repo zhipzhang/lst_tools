@@ -306,11 +306,18 @@ class BuildWorkRun(Tool):
             zenith_tolerance_deg=self.zenith_tolerance_deg,
             month_day_tolerance=self.month_day_tolerance,
         )
+        if self.matching_off_runs.empty:
+            self.log.warning("No off runs matched the NSB, zenith, and MMDD selection bounds; offdl2 will be empty")
         self.offrun_dl1_files = find_compatible_offrun_dl1_files(
             self.offrun_dl1_path,
             self.matching_off_runs["run_number"].astype(int).tolist(),
             self.target_dl2_table.tailcut_level,
         )
+        if not self.offrun_dl1_files and not self.matching_off_runs.empty:
+            self.log.warning(
+                "Off runs matched the DataCheck selection, but no DL1 files passed discovery and tailcut checks; "
+                "offdl2 will be empty"
+            )
         self.irf_nodes = find_dl2_mc_path(
             self.mc_dl2_path,
             self.target_dl2_table,
@@ -333,14 +340,16 @@ class BuildWorkRun(Tool):
             self.offrun_dl2_dir,
             parent=self,
         )
+        if self.offrun_dl1_files and not generated_offrun_dl2_files:
+            self.log.warning("No off-run DL2 files were generated; inspect the DL1ToDL2Tool messages")
 
         irf_generator = IRFGenerator(str(Path(self.irf_output_dir).expanduser().resolve()))
-        linked_irf_files = []
+        linked_irf_nodes = []
         for node in self.irf_nodes:
             irf_file = irf_generator.make_irf_node(node)
-            irf_link = self.workrun_dir / "irf" / node.path_name / irf_file.name
-            create_safe_link(irf_file, irf_link)
-            linked_irf_files.append(irf_link)
+            irf_node_link = self.workrun_dir / "irf" / node.pointing_name
+            create_safe_link(irf_file.parent, irf_node_link)
+            linked_irf_nodes.append(irf_node_link)
 
         config_path = self.workrun_dir / "workrun.toml"
         write_workrun_config(
@@ -375,14 +384,14 @@ class BuildWorkRun(Tool):
                     "output_dir": Path(self.irf_output_dir).expanduser().resolve(),
                     "gh_efficiency": self.gh_efficiency,
                     "node_count": len(self.irf_nodes),
-                    "linked_files": linked_irf_files,
+                    "linked_nodes": linked_irf_nodes,
                 },
             },
         )
 
         self.log.info("Work-run directory: %s", self.workrun_dir)
         self.log.info("Compatible off-run DL1 files: %d", len(self.offrun_dl1_files))
-        self.log.info("Linked IRFs: %d", len(linked_irf_files))
+        self.log.info("Linked IRF nodes: %d", len(linked_irf_nodes))
 
 
 def main() -> None:
