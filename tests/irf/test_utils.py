@@ -15,16 +15,17 @@ def make_dl2_table(nsb_level=0.81, dec_line=2276, intensity_cuts=80):
     return dl2_table
 
 
-def make_mc_file(base_path, campaign_nsb, dec_line, zenith, azimuth, *, diffuse=True):
+def make_mc_file(base_path, campaign_nsb, dec_line, zenith, azimuth, *, diffuse=True, corsika_node=False):
     gamma_directory = "GammaDiffuse" if diffuse else "Gamma"
     dec_name = f"dec_min_{abs(dec_line)}" if dec_line < 0 else f"dec_{dec_line}"
+    node_prefix = "node_corsika_theta" if corsika_node else "node_theta"
     node_path = (
         base_path
         / f"20250212_v0.10.17_allsky_interp_dl2_irfs_nsb_{campaign_nsb}"
         / "TestingDataset"
         / gamma_directory
         / dec_name
-        / f"node_theta_{zenith}_az_{azimuth}_"
+        / f"{node_prefix}_{zenith}_az_{azimuth}_"
     )
     node_path.mkdir(parents=True, exist_ok=True)
     dl2_path = node_path / f"dl2_test_node_theta_{zenith}_az_{azimuth}__merged.h5"
@@ -76,6 +77,17 @@ def test_can_find_point_like_gamma_mc(tmp_path):
     result = find_dl2_mc_path(tmp_path, make_dl2_table(), diffuse=False)
 
     assert [node.dl2_path for node in result] == [dl2_path]
+
+
+def test_finds_corsika_named_nodes(tmp_path):
+    dl2_path = make_mc_file(tmp_path, 0.22, 3476, 12.829, 301.263, corsika_node=True)
+
+    result = find_dl2_mc_path(tmp_path, make_dl2_table(nsb_level=0.22, dec_line=3476))
+
+    assert len(result) == 1
+    assert result[0].dl2_path == dl2_path
+    assert result[0].zenith == pytest.approx(12.829)
+    assert result[0].azimuth == pytest.approx(301.263)
 
 
 @pytest.mark.parametrize("dec_line", [2276, 3476, 4822, 6166, 6676, 931, -1802, -2924, -413])

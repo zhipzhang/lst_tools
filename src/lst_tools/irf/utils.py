@@ -8,7 +8,9 @@ from .irf_nodes import IRFNode
 MC_DL2_PATH = Path("/fefs/aswg/data/mc/DL2/AllSky")
 
 _NSB_PATTERN = re.compile(r"(?:^|_)nsb_(?P<nsb>\d+(?:\.\d+)?)$")
-_NODE_PATTERN = re.compile(r"node_theta_(?P<zenith>[+-]?\d+(?:\.\d+)?)_az_(?P<azimuth>[+-]?\d+(?:\.\d+)?)_*$")
+_NODE_PATTERN = re.compile(
+    r"node_(?:corsika_)?theta_(?P<zenith>[+-]?\d+(?:\.\d+)?)_az_(?P<azimuth>[+-]?\d+(?:\.\d+)?)_*$"
+)
 
 
 def _campaign_matches_nsb(path: Path, nsb_level: float) -> bool:
@@ -53,7 +55,8 @@ def find_dl2_mc_path(
     its declination directory. By default, files are read from
     ``TestingDataset/GammaDiffuse``; pass ``diffuse=False`` to use
     ``TestingDataset/Gamma``. One node is returned for every merged DL2 file
-    in a directory named ``node_theta_<zenith>_az_<azimuth>_``.
+    in a directory named ``node_theta_<zenith>_az_<azimuth>_`` or
+    ``node_corsika_theta_<zenith>_az_<azimuth>_``.
     """
     base_path = Path(base_path)
     if not base_path.exists():
@@ -72,7 +75,7 @@ def find_dl2_mc_path(
     intensity_cuts = dl2_table.intensity_cuts
     nodes = []
     for dec_path in _find_declination_directories(base_path, nsb_level, dec_line, diffuse):
-        for node_path in sorted(dec_path.glob("node_theta_*_az_*")):
+        for node_path in sorted(dec_path.glob("node_*theta_*_az_*")):
             if not node_path.is_dir() or (match := _NODE_PATTERN.fullmatch(node_path.name)) is None:
                 continue
 
