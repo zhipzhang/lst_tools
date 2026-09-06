@@ -1,6 +1,7 @@
 import logging
 from collections.abc import Iterable
 from dataclasses import dataclass, replace
+from functools import cached_property
 from pathlib import Path
 
 import numpy as np
@@ -100,9 +101,9 @@ class DataCheckTables:
             .reset_index()
         )
 
-    @property
+    @cached_property
     def statistics(self) -> pd.DataFrame:
-        """Return the run-wise statistics defined by :data:`DEFAULT_SPEC`."""
+        """Return and cache the run-wise statistics defined by :data:`DEFAULT_SPEC`."""
         return self.get_statistics(DEFAULT_SPEC)
 
     def save_to_h5file(self, file: str | Path, overwrite: bool = False) -> None:

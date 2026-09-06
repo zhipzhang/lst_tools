@@ -263,7 +263,7 @@ class BuildWorkRun(Tool):
         help="DataCheck HDF5 file or directory containing the target run",
     ).tag(config=True)
     offrun_data_check_path = traits.Path(
-        default_value="./offrun/datacheck",
+        default_value="./offruns/data_check",
         help="DataCheck HDF5 file or directory containing off-run candidates",
     ).tag(config=True)
     offrun_dl1_path = traits.Path(
