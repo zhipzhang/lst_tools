@@ -2,13 +2,13 @@ from dataclasses import dataclass
 from pathlib import Path
 
 
-@dataclass(frozen=True)
+@dataclass
 class IRFNode:
     declination: float
     zenith: float
     azimuth: float
     intensity_cuts: float
-    dl2_path: Path
+    dl2_path: Path | None = None
     gh_efficiency: float | None = None
 
     @property
@@ -21,3 +21,10 @@ class IRFNode:
     @property
     def pointing_name(self):
         return f"azimuth_{self.azimuth:.1f}_zenith_{self.zenith:.1f}"
+
+    @property
+    def path_name(self):
+        path_name = (
+            f"{self.dec_name}/intensity_{self.intensity_cuts:.0f}/gh_eff_{self.gh_efficiency:.1f}/{self.pointing_name}"
+        )
+        return path_name

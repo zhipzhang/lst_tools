@@ -56,6 +56,7 @@ def test_finds_all_dl2_mc_paths_for_matching_nsb_and_declination(tmp_path):
             azimuth=133.619,
             intensity_cuts=80,
             dl2_path=first_path,
+            gh_efficiency=0.7,
         ),
         IRFNode(
             declination=22.76,
@@ -63,6 +64,7 @@ def test_finds_all_dl2_mc_paths_for_matching_nsb_and_declination(tmp_path):
             azimuth=331.291,
             intensity_cuts=80,
             dl2_path=second_path,
+            gh_efficiency=0.7,
         ),
     ]
     assert [node.dec_name for node in result] == ["dec_2276", "dec_2276"]

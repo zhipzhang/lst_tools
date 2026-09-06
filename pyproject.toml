@@ -26,6 +26,7 @@ dependencies = [
 ]
 
 [project.scripts]
+build-workrun = "lst_tools.scripts.build_workrun:main"
 init-lstana = "lst_tools.scripts.init_lstana:main"
 prepare-offruns = "lst_tools.scripts.prepare_offruns:main"
 

@@ -96,6 +96,25 @@ This always creates `data_check/DL1_datacheck_offruns.h5`. Pass `--with-dl1`
 (`--with-dl` is an alias) and/or `--with-dl2` to create idempotent links under
 `dl1/` and/or `dl2/`. When neither option is given, no data links are created.
 
+## Build a single-run workspace
+
+Build the target DL2 link, matching off-run DL2 files, IRFs, and a reproducible
+`workrun.toml` configuration for one run:
+
+```bash
+build-workrun --run 12345 \
+  --dl2-path /path/to/dl2 \
+  --data-check-path /path/to/data_check \
+  --offrun-dl1-path /path/to/offruns/dl1 \
+  --mc-dl2-path /path/to/mc/DL2/AllSky \
+  --irf-output-dir /path/to/irfs \
+  --output-dir /path/to/workdir
+```
+
+Candidate DL1 links are resolved to their source paths before their tailcuts
+are compared with the target DL2 provenance. Mismatches and broken links are
+reported and skipped. Existing generated DL2 and IRF files are reused safely.
+
 ## Layout
 
 ```

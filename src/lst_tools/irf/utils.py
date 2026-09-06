@@ -45,6 +45,7 @@ def find_dl2_mc_path(
     dl2_table: LSTDL2EventTable,
     *,
     diffuse: bool = True,
+    gh_efficiency: float = 0.7,
 ) -> list[IRFNode]:
     """Find the DL2 MC files matching an observation's NSB and declination.
 
@@ -86,6 +87,7 @@ def find_dl2_mc_path(
                             azimuth=azimuth,
                             intensity_cuts=intensity_cuts,
                             dl2_path=dl2_path,
+                            gh_efficiency=gh_efficiency,
                         )
                     )
 
