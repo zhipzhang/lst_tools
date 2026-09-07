@@ -81,6 +81,7 @@ def plot_radial_acceptance(
     energy_edges: Iterable[float],
     *,
     density: bool = True,
+    theta_squared: bool = False,
     ax: Axes | None = None,
 ) -> tuple[Figure, Axes]:
     """Plot solid-angle-corrected radial acceptance by energy interval.
@@ -89,7 +90,8 @@ def plot_radial_acceptance(
     choose the energy intervals. Counts in each radial interval are divided by
     its exact spherical solid angle. When ``density`` is true, each non-empty
     curve has unit solid-angle-weighted integral and can be compared
-    independently of event count.
+    independently of event count. When ``theta_squared`` is true, the
+    horizontal axis shows the square of the camera offset radius.
 
     Exposure differences are not corrected by this function.
     """
@@ -124,6 +126,7 @@ def plot_radial_acceptance(
     enclosed_solid_angle = 2 * np.pi * (1 - np.cos(theta_edges))
     annular_solid_angle = np.diff(enclosed_solid_angle)
     radial_centers = 0.5 * (radial_edges[:-1] + radial_edges[1:])
+    horizontal_values = radial_centers**2 if theta_squared else radial_centers
 
     for (low, high), selected in zip(energy_intervals, selected_events, strict=True):
         radius = selected.radius.to_value(u.deg)
@@ -134,10 +137,10 @@ def plot_radial_acceptance(
         if density and values.sum() > 0:
             values /= np.sum(values * annular_solid_angle)
 
-        ax.plot(radial_centers, values, label=_energy_label(low, high))
+        ax.plot(horizontal_values, values, label=_energy_label(low, high))
 
     ax.set(
-        xlabel="Camera offset radius [deg]",
+        xlabel="Camera offset radius squared [deg²]" if theta_squared else "Camera offset radius [deg]",
         ylabel="Probability density [sr⁻¹]" if density else "Event density [sr⁻¹]",
     )
     ax.legend(title="Reconstructed energy")
