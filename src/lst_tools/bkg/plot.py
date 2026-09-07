@@ -77,7 +77,7 @@ def plot_energy_slices(
 
 
 def plot_radial_acceptance(
-    camera_events: CameraEvents,
+    camera_events: CameraEvents | Iterable[CameraEvents],
     energy_edges: Iterable[float],
     *,
     density: bool = True,
@@ -86,25 +86,39 @@ def plot_radial_acceptance(
 ) -> tuple[Figure, Axes]:
     """Plot solid-angle-corrected radial acceptance by energy interval.
 
-    A shared radial grid is inferred from all selected events so callers only
-    choose the energy intervals. Counts in each radial interval are divided by
-    its exact spherical solid angle. When ``density`` is true, each non-empty
-    curve has unit solid-angle-weighted integral and can be compared
-    independently of event count. When ``theta_squared`` is true, the
-    horizontal axis shows the square of the camera offset radius.
+    ``camera_events`` may be one event collection or an iterable of event
+    collections. Events from all collections are combined. A shared radial
+    grid is inferred from the selected events so callers only choose the
+    energy intervals. Counts in each radial interval are divided by its exact
+    spherical solid angle. When ``density`` is true, each non-empty curve has
+    unit solid-angle-weighted integral and can be compared independently of
+    event count. When ``theta_squared`` is true, the horizontal axis shows the
+    square of the camera offset radius.
 
     Exposure differences are not corrected by this function.
     """
+    if isinstance(camera_events, CameraEvents):
+        event_collections = (camera_events,)
+    else:
+        event_collections = tuple(camera_events)
+
+    if not event_collections:
+        raise ValueError("camera_events must contain at least one event collection")
+    if not all(isinstance(events, CameraEvents) for events in event_collections):
+        raise TypeError("camera_events must contain only CameraEvents objects")
+
     energy_bins = _validate_edges(energy_edges, "energy_edges", u.TeV)
     energy_intervals = list(pairwise(energy_bins))
-    selected_events = [camera_events.select_energy(low, high) for low, high in energy_intervals]
-    finite_radii = [
-        radius[np.isfinite(radius)]
-        for selected in selected_events
-        if len(selected) > 0
-        for radius in [selected.radius.to_value(u.deg)]
+    energies = np.concatenate([events.energy.to_value(u.TeV) for events in event_collections])
+    radii = np.concatenate([events.radius.to_value(u.deg) for events in event_collections])
+    finite = np.isfinite(energies) & np.isfinite(radii)
+    energies = energies[finite]
+    radii = radii[finite]
+    radii_by_energy = [
+        radii[(energies >= low) & (energies < high)]
+        for low, high in energy_intervals
     ]
-    all_radii = np.concatenate(finite_radii) if finite_radii else np.array([])
+    all_radii = np.concatenate(radii_by_energy)
     if all_radii.size == 0:
         raise ValueError("no events fall inside the requested energy intervals")
 
@@ -128,9 +142,7 @@ def plot_radial_acceptance(
     radial_centers = 0.5 * (radial_edges[:-1] + radial_edges[1:])
     horizontal_values = radial_centers**2 if theta_squared else radial_centers
 
-    for (low, high), selected in zip(energy_intervals, selected_events, strict=True):
-        radius = selected.radius.to_value(u.deg)
-        radius = radius[np.isfinite(radius)]
+    for (low, high), radius in zip(energy_intervals, radii_by_energy, strict=True):
         values, _ = np.histogram(radius, bins=radial_edges)
         values = values.astype(float)
         values /= annular_solid_angle
