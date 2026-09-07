@@ -1,17 +1,14 @@
 import astropy.units as u
 import numpy as np
-import pandas as pd
 import pytest
-from astropy.coordinates import SkyCoord
 
 from lst_tools.bkg.camera import CameraImage
+from lst_tools.bkg.events import SkyOffsetEvents
 
 
 @pytest.fixture
 def camera():
-    pointing = SkyCoord(alt=60 * u.deg, az=20 * u.deg, frame="altaz")
     return CameraImage(
-        center=pointing,
         x_edges=[-1, 0, 1],
         y_edges=[-1, 0, 1],
         e_edges=[0.1, 1, 10],
@@ -19,34 +16,14 @@ def camera():
 
 
 @pytest.fixture
-def sample_events(camera):
+def sample_events():
     """Two in-range events and one event outside each configured axis."""
-    offsets = SkyCoord(
-        lon=[-0.5, 0.5, 2, 0, 0] * u.deg,
-        lat=[-0.5, 0.5, 0, 2, 0] * u.deg,
-        frame=camera.telescope_frame,
+    return SkyOffsetEvents(
+        x=[-0.5, 0.5, 2, 0, 0] * u.deg,
+        y=[-0.5, 0.5, 0, 2, 0] * u.deg,
+        energy=[0.5, 5, 0.5, 5, 20] * u.TeV,
+        livetime=10 * u.s,
     )
-    horizontal = offsets.transform_to(camera.center.frame)
-
-    return pd.DataFrame(
-        {
-            "reco_alt": horizontal.alt.to_value(u.rad),
-            "reco_az": horizontal.az.to_value(u.rad),
-            "reco_energy": [0.5, 5, 0.5, 5, 20],
-        }
-    )
-
-
-def test_camera_skyoffsetframe(camera):
-    event_pointing = SkyCoord(
-        alt=camera.center.alt + 1 * u.deg,
-        az=camera.center.az,
-        frame=camera.center.frame,
-    )
-    transformed = event_pointing.transform_to(camera.telescope_frame)
-
-    assert transformed.lon.to_value("deg") == pytest.approx(0)
-    assert transformed.lat.to_value("deg") == pytest.approx(1)
 
 
 def test_camera_starts_with_empty_configured_axes(camera):
@@ -57,7 +34,7 @@ def test_camera_starts_with_empty_configured_axes(camera):
     np.testing.assert_array_equal(camera.histogram.values(), np.zeros((2, 2, 2)))
 
 
-def test_fill_transforms_and_bins_events(camera, sample_events):
+def test_fill_bins_sky_offset_events(camera, sample_events):
     camera.fill(sample_events)
 
     expected = np.zeros((2, 2, 2))
@@ -73,12 +50,15 @@ def test_fill_accumulates_events(camera, sample_events):
     assert camera.histogram.values().sum() == 4
 
 
-@pytest.mark.parametrize("missing_column", ["reco_alt", "reco_az", "reco_energy"])
-def test_fill_requires_event_columns(camera, sample_events, missing_column):
-    incomplete_events = sample_events.drop(columns=missing_column)
+def test_fill_accepts_empty_events(camera):
+    camera.fill(SkyOffsetEvents())
 
-    with pytest.raises(ValueError, match=missing_column):
-        camera.fill(incomplete_events)
+    assert camera.histogram.values().sum() == 0
+
+
+def test_fill_requires_sky_offset_events(camera):
+    with pytest.raises(TypeError, match="SkyOffsetEvents"):
+        camera.fill(object())
 
 
 @pytest.mark.parametrize(
@@ -99,6 +79,5 @@ def test_camera_rejects_invalid_axis_edges(edge_name, edges):
 
     with pytest.raises(ValueError, match=edge_name):
         CameraImage(
-            center=SkyCoord(alt=60 * u.deg, az=20 * u.deg, frame="altaz"),
             **axis_edges,
         )

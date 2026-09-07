@@ -4,29 +4,9 @@ from collections.abc import Iterable
 
 import astropy.units as u
 import hist
-import numpy as np
-import pandas as pd
-from astropy.coordinates import SkyCoord, SkyOffsetFrame
 
-
-def _validate_edges(edges: Iterable[float], name: str, unit: u.Unit) -> np.ndarray:
-    """Convert axis edges to the expected unit and validate them."""
-    try:
-        if isinstance(edges, u.Quantity):
-            values = np.asarray(edges.to_value(unit), dtype=float)
-        else:
-            values = np.asarray(edges, dtype=float)
-    except (TypeError, ValueError, u.UnitConversionError) as error:
-        raise ValueError(f"{name} must contain numeric values in {unit}") from error
-
-    if values.ndim != 1 or values.size < 2:
-        raise ValueError(f"{name} must contain at least two one-dimensional bin edges")
-    if not np.all(np.isfinite(values)):
-        raise ValueError(f"{name} must contain only finite values")
-    if np.any(np.diff(values) <= 0):
-        raise ValueError(f"{name} must be strictly increasing")
-
-    return values
+from .events import SkyOffsetEvents
+from .utils import validate_edges
 
 
 class CameraImage:
@@ -34,9 +14,6 @@ class CameraImage:
 
     Parameters
     ----------
-    center
-        Telescope pointing. Event directions are transformed to a
-        :class:`~astropy.coordinates.SkyOffsetFrame` centered here.
     x_edges, y_edges
         Spatial bin edges. Unitless values are interpreted as degrees.
     e_edges
@@ -49,20 +26,15 @@ class CameraImage:
     configured axis are discarded.
     """
 
-    REQUIRED_COLUMNS = ("reco_alt", "reco_az", "reco_energy")
-
     def __init__(
         self,
-        center: SkyCoord,
         x_edges: Iterable[float],
         y_edges: Iterable[float],
         e_edges: Iterable[float],
     ) -> None:
-        self.center = center
-        self.telescope_frame = SkyOffsetFrame(origin=center)
-        self.x_edges = _validate_edges(x_edges, "x_edges", u.deg)
-        self.y_edges = _validate_edges(y_edges, "y_edges", u.deg)
-        self.e_edges = _validate_edges(e_edges, "e_edges", u.TeV)
+        self.x_edges = validate_edges(x_edges, "x_edges", u.deg)
+        self.y_edges = validate_edges(y_edges, "y_edges", u.deg)
+        self.e_edges = validate_edges(e_edges, "e_edges", u.TeV)
 
         self.histogram = hist.Hist(
             hist.axis.Variable(
@@ -88,26 +60,12 @@ class CameraImage:
             ),
         )
 
-    def fill(self, events: pd.DataFrame) -> None:
-        """Transform and add reconstructed events to the histogram.
-
-        The DL2 ``reco_alt`` and ``reco_az`` columns are interpreted as radians,
-        and ``reco_energy`` is interpreted as TeV.
-        """
-        missing_columns = [column for column in self.REQUIRED_COLUMNS if column not in events.columns]
-        if missing_columns:
-            missing = ", ".join(missing_columns)
-            raise ValueError(f"events must contain the following columns: {missing}")
-
-        directions = SkyCoord(
-            alt=np.asarray(events["reco_alt"], dtype=float) * u.rad,
-            az=np.asarray(events["reco_az"], dtype=float) * u.rad,
-            frame=self.center.frame,
-        )
-        offsets = directions.transform_to(self.telescope_frame)
-
+    def fill(self, events: SkyOffsetEvents) -> None:
+        """Add already transformed sky-offset events to the histogram."""
+        if not isinstance(events, SkyOffsetEvents):
+            raise TypeError("events must be a SkyOffsetEvents object")
         self.histogram.fill(
-            x=offsets.lon.to_value(u.deg),
-            y=offsets.lat.to_value(u.deg),
-            energy=np.asarray(events["reco_energy"], dtype=float),
+            x=events.x.to_value(u.deg),
+            y=events.y.to_value(u.deg),
+            energy=events.energy.to_value(u.TeV),
         )
