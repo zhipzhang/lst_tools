@@ -36,6 +36,8 @@ class LSTDL2EventTable:
         config = self.dl2_provenance.get("input", [])
         for input_info in config:
             roles = input_info.get("role", [])
+            if not roles:
+                continue
             if "input" in roles:
                 self.input_path = input_info.get("url")
             if "model" in roles:
