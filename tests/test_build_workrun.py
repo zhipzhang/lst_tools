@@ -8,6 +8,7 @@ import pytest
 from lst_tools.irf import IRFNode
 from lst_tools.scripts import build_workrun
 from lst_tools.scripts.build_workrun import (
+    WORKRUN_IRF_FILE_PATTERN,
     BuildWorkRun,
     OffRunSelectionBounds,
     expected_dl2_path,
@@ -19,6 +20,44 @@ from lst_tools.scripts.build_workrun import (
     select_matching_off_runs,
     write_workrun_config,
 )
+
+
+def test_build_workrun_loads_toml_config_with_cli_override(tmp_path, monkeypatch):
+    config_file = tmp_path / "input.toml"
+    config_file.write_text(
+        """
+[BuildWorkRun]
+run_number = 42
+dl2_path = "/data/dl2"
+date_tolerance_days = 30
+require_matching_tailcuts = false
+source_name = "Crab Nebula"
+source_ra = 83.632
+source_dec = 22.0145
+background_energy_edges = [0.1, 1.0, 10.0]
+background_theta_edges = [0.0, 1.0, 2.0]
+
+# Generated workrun files contain additional result tables, which the Tool
+# ignores when it loads its own configuration section.
+[target]
+run_number = 42
+""",
+        encoding="utf-8",
+    )
+
+    monkeypatch.setattr("ctapipe.core.tool.Provenance.add_input_file", lambda *args, **kwargs: None)
+    tool = BuildWorkRun()
+    tool.initialize([f"--config={config_file}", "--run=43"])
+
+    assert tool.run_number == 43
+    assert tool.dl2_path == Path("/data/dl2")
+    assert tool.date_tolerance_days == 30
+    assert tool.require_matching_tailcuts is False
+    assert tool.source_name == "Crab Nebula"
+    assert tool.source_ra == pytest.approx(83.632)
+    assert tool.source_dec == pytest.approx(22.0145)
+    assert tool.background_energy_edges == [0.1, 1.0, 10.0]
+    assert tool.background_theta_edges == [0.0, 1.0, 2.0]
 
 
 @pytest.mark.parametrize(
@@ -220,13 +259,48 @@ def test_build_workrun_start_creates_links_and_config(tmp_path, monkeypatch):
     mc_dl2.parent.mkdir()
     target_dl2.touch()
     mc_dl2.touch()
+    stage_order = []
+    dl3_calls = []
+    background_calls = []
 
     def run_irf(command, check):
         assert check is True
+        stage_order.append("irf")
         output_argument = next(argument for argument in command if argument.startswith("--output-irf-file="))
         Path(output_argument.split("=", 1)[1]).touch()
 
+    class FakeDataReductionFITSWriter:
+        def __init__(self, **kwargs):
+            dl3_calls.append(kwargs)
+            self.output_file = Path(kwargs["output_dl3_path"]) / build_workrun.dl2_to_dl3_filename(
+                kwargs["input_dl2"],
+                compress=False,
+            )
+
+        def setup(self):
+            stage_order.append("dl3-setup")
+
+        def start(self):
+            stage_order.append("dl3")
+
+        def finish(self):
+            self.output_file.touch()
+
+    def reconstruct(*args, **kwargs):
+        stage_order.append("off-dl2")
+        return []
+
+    def build_background(*args, **kwargs):
+        stage_order.append("background")
+        background_calls.append((args, kwargs))
+        output_file = Path(args[3])
+        output_file.touch()
+        return output_file.resolve()
+
     monkeypatch.setattr("lst_tools.irf.irf_generator.subprocess.run", run_irf)
+    monkeypatch.setattr(build_workrun, "DataReductionFITSWriter", FakeDataReductionFITSWriter)
+    monkeypatch.setattr(build_workrun, "reconstruct_off_runs", reconstruct)
+    monkeypatch.setattr(build_workrun, "build_dl2_background", build_background)
 
     tool = BuildWorkRun(
         run_number=42,
@@ -234,6 +308,12 @@ def test_build_workrun_start_creates_links_and_config(tmp_path, monkeypatch):
         irf_output_dir=tmp_path / "shared_irfs",
         mc_dl2_path=tmp_path / "mc",
         require_matching_tailcuts=False,
+        source_name="Crab Nebula",
+        source_ra=83.632,
+        source_dec=22.0145,
+        background_energy_edges=[0.1, 1.0, 10.0],
+        background_theta_edges=[0.0, 1.0, 2.0],
+        background_exclude_run_numbers=[43],
     )
     tool.target_dl2_file = target_dl2.resolve()
     tool.target_dl2_table = SimpleNamespace(
@@ -269,13 +349,79 @@ def test_build_workrun_start_creates_links_and_config(tmp_path, monkeypatch):
     assert irf_node_link.is_symlink()
     assert irf_node_link.resolve() == (Path(tool.irf_output_dir) / tool.irf_nodes[0].path_name).resolve()
     assert (irf_node_link / "irf.fits.gz").is_file()
+    target_dl3 = tool.workrun_dir / build_workrun.dl2_to_dl3_filename(target_link, compress=False)
+    assert target_dl3.is_file()
+    assert stage_order == ["irf", "dl3-setup", "dl3", "off-dl2", "background"]
+    assert dl3_calls == [
+        {
+            "input_dl2": target_link,
+            "output_dl3_path": tool.workrun_dir,
+            "input_irf_path": tool.workrun_dir / "irf",
+            "irf_file_pattern": WORKRUN_IRF_FILE_PATTERN,
+            "source_name": "Crab Nebula",
+            "source_ra": "83.632 deg",
+            "source_dec": "22.0145 deg",
+        }
+    ]
+    background_file = tool.workrun_dir / "background2d.fits"
+    assert background_file.is_file()
+    assert background_calls == [
+        (
+            (target_link, target_dl3.resolve(), tool.offrun_dl2_dir, background_file),
+            {
+                "energy_edges": [0.1, 1.0, 10.0],
+                "theta_edges": [0.0, 1.0, 2.0],
+                "spectral_index": -2.0,
+                "exclude_run_numbers": [43],
+                "overwrite": True,
+            },
+        )
+    ]
     with (tool.workrun_dir / "workrun.toml").open("rb") as file_handle:
         config = tomllib.load(file_handle)
+    assert config["BuildWorkRun"] == {
+        "run_number": 42,
+        "dl2_path": str(tool.dl2_path),
+        "data_check_path": str(tool.data_check_path),
+        "offrun_data_check_path": str(tool.offrun_data_check_path),
+        "offrun_dl1_path": str(tool.offrun_dl1_path),
+        "mc_dl2_path": str(tool.mc_dl2_path),
+        "irf_output_dir": str(tool.irf_output_dir),
+        "output_dir": str(tool.output_dir),
+        "source_name": "Crab Nebula",
+        "source_ra": 83.632,
+        "source_dec": 22.0145,
+        "background_energy_edges": [0.1, 1.0, 10.0],
+        "background_theta_edges": [0.0, 1.0, 2.0],
+        "background_spectral_index": -2.0,
+        "background_exclude_run_numbers": [43],
+        "zenith_tolerance_deg": 2.0,
+        "nsb_relative_tolerance": 0.1,
+        "date_tolerance_days": 90,
+        "require_matching_tailcuts": False,
+        "gh_efficiency": 0.7,
+    }
     assert config["target"]["run_number"] == 42
     assert config["target"]["data_check_files"] == [str(tmp_path / "target_datacheck.h5")]
     assert config["target"]["tailcuts"] == [10, 5]
     assert config["irf"]["node_count"] == 1
     assert config["irf"]["linked_nodes"] == [str(irf_node_link)]
+    assert config["dl3"] == {
+        "file": str(target_dl3.resolve()),
+        "input_irf_path": str(tool.workrun_dir / "irf"),
+        "irf_file_pattern": WORKRUN_IRF_FILE_PATTERN,
+        "source_name": "Crab Nebula",
+        "source_ra_deg": 83.632,
+        "source_dec_deg": 22.0145,
+    }
+    assert config["background"] == {
+        "file": str(background_file.resolve()),
+        "offrun_dl2_path": str(tool.offrun_dl2_dir),
+        "energy_edges_tev": [0.1, 1.0, 10.0],
+        "theta_edges_deg": [0.0, 1.0, 2.0],
+        "spectral_index": -2.0,
+        "excluded_run_numbers": [43],
+    }
     assert config["offrun_selection"]["date_tolerance_days"] == 90
     assert config["offrun_selection"]["target_day_of_year"] == 46
     assert config["offrun_selection"]["data_check_files"] == [str(tmp_path / "offrun_datacheck.h5")]

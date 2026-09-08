@@ -1,8 +1,8 @@
 """Build an analysis workspace for one LST DL2 run.
 
 The command locates one target DL2 file, selects compatible off runs from
-DataCheck statistics, reconstructs their DL1 files with the target's trained
-models, prepares the matching IRFs, and records the result in TOML.
+DataCheck statistics, links the target, prepares its matching IRFs and DL3
+file, reconstructs the off-run DL1 files, and records the result in TOML.
 """
 
 from __future__ import annotations
@@ -17,16 +17,21 @@ from typing import ClassVar
 import numpy as np
 import pandas as pd
 from ctapipe.core import Tool, ToolConfigurationError, traits
+from lstchain.paths import dl2_to_dl3_filename
+from lstchain.tools.lstchain_create_dl3_file import DataReductionFITSWriter
 from lstchain.tools.lstchain_dl1_to_dl2 import DL1ToDL2Tool
 
+from lst_tools.bkg import Background2DMaker
 from lst_tools.datacheck import DataCheckTables
 from lst_tools.dl2 import LSTDL2EventTable
 from lst_tools.irf import IRFGenerator
 from lst_tools.irf.utils import MC_DL2_PATH, find_dl2_mc_path
+from lst_tools.scripts.build_dl2_background import build_dl2_background
 from lst_tools.scripts.init_lstana import create_safe_link
 
 _RUN_PATTERN = re.compile(r"Run(?P<run_number>\d+)")
 _TAILCUT_PATTERN = re.compile(r"(?:^|[/_])tailcut(?P<levels>\d+)(?:[/_]|$)")
+WORKRUN_IRF_FILE_PATTERN = "azimuth_*_zenith_*/irf.fits.gz"
 
 
 @dataclass(frozen=True)
@@ -225,6 +230,45 @@ def reconstruct_off_runs(
     return [path for path in expected_outputs if path.exists()]
 
 
+def generate_target_dl3(
+    input_dl2: Path,
+    input_irf_path: Path,
+    output_dir: Path,
+    *,
+    source_name: str,
+    source_ra_deg: float,
+    source_dec_deg: float,
+) -> Path:
+    """Generate the target DL3 file using the run-local IRF links."""
+    irf_files = sorted(input_irf_path.glob(WORKRUN_IRF_FILE_PATTERN))
+    if not irf_files:
+        raise ToolConfigurationError(
+            f"No run-local IRFs found under {input_irf_path} with pattern {WORKRUN_IRF_FILE_PATTERN!r}"
+        )
+
+    output_dir.mkdir(parents=True, exist_ok=True)
+    output_file = output_dir / dl2_to_dl3_filename(input_dl2, compress=False)
+    if output_file.is_file():
+        return output_file.resolve()
+
+    writer = DataReductionFITSWriter(
+        input_dl2=input_dl2,
+        output_dl3_path=output_dir,
+        input_irf_path=input_irf_path,
+        irf_file_pattern=WORKRUN_IRF_FILE_PATTERN,
+        source_name=source_name,
+        source_ra=f"{source_ra_deg} deg",
+        source_dec=f"{source_dec_deg} deg",
+    )
+    writer.setup()
+    writer.start()
+    writer.finish()
+
+    if not output_file.is_file():
+        raise RuntimeError(f"DataReductionFITSWriter did not create {output_file}")
+    return output_file.resolve()
+
+
 def _toml_value(value: object) -> str:
     """Serialize the scalar/list values used by the work-run configuration."""
     if isinstance(value, bool):
@@ -251,7 +295,7 @@ def write_workrun_config(path: Path, sections: dict[str, dict[str, object]]) -> 
 
 
 class BuildWorkRun(Tool):
-    """Build the DL2, off-run, and IRF products for one observation run."""
+    """Build the target DL2, IRF, DL3, and off-run products for one observation run."""
 
     name = "build-workrun"
     description = __doc__
@@ -276,6 +320,38 @@ class BuildWorkRun(Tool):
     ).tag(config=True)
     irf_output_dir = traits.Path(default_value="./irf", help="Shared IRF output directory").tag(config=True)
     output_dir = traits.Path(default_value="./workdir", help="Root directory for RunXXXXX workspaces").tag(config=True)
+    source_name = traits.Unicode(default_value="source", help="Source name stored in the target DL3 file").tag(
+        config=True
+    )
+    source_ra = traits.Float(
+        default_value=None,
+        allow_none=True,
+        help="Source right ascension in degrees, required for DL3 generation",
+    ).tag(config=True)
+    source_dec = traits.Float(
+        default_value=None,
+        allow_none=True,
+        help="Source declination in degrees, required for DL3 generation",
+    ).tag(config=True)
+    background_energy_edges = traits.List(
+        trait=traits.Float(),
+        default_value=[],
+        help="Background reconstructed-energy bin edges in TeV",
+    ).tag(config=True)
+    background_theta_edges = traits.List(
+        trait=traits.Float(),
+        default_value=[],
+        help="Background radial offset bin edges in degrees",
+    ).tag(config=True)
+    background_spectral_index = traits.Float(
+        default_value=-2.0,
+        help="Spectral index used for background differential-rate normalization",
+    ).tag(config=True)
+    background_exclude_run_numbers = traits.List(
+        trait=traits.Int(),
+        default_value=[],
+        help="Off-run numbers reserved for validation and excluded from background training",
+    ).tag(config=True)
     zenith_tolerance_deg = traits.Float(
         default_value=2.0,
         help="Maximum zenith-angle difference for off runs, in degrees",
@@ -303,6 +379,13 @@ class BuildWorkRun(Tool):
         ("mc-dl2", "mc-dl2-path"): "BuildWorkRun.mc_dl2_path",
         ("irf-output", "irf-output-dir"): "BuildWorkRun.irf_output_dir",
         ("o", "output", "output-dir"): "BuildWorkRun.output_dir",
+        ("source-name",): "BuildWorkRun.source_name",
+        ("source-ra",): "BuildWorkRun.source_ra",
+        ("source-dec",): "BuildWorkRun.source_dec",
+        ("background-energy-edges",): "BuildWorkRun.background_energy_edges",
+        ("background-theta-edges",): "BuildWorkRun.background_theta_edges",
+        ("background-spectral-index",): "BuildWorkRun.background_spectral_index",
+        ("background-exclude-run",): "BuildWorkRun.background_exclude_run_numbers",
         ("zenith-off", "zenith-tolerance"): "BuildWorkRun.zenith_tolerance_deg",
         ("nsb-level-off", "nsb-tolerance"): "BuildWorkRun.nsb_relative_tolerance",
         ("date-tolerance-days", "month-day-tolerance"): "BuildWorkRun.date_tolerance_days",
@@ -330,6 +413,24 @@ class BuildWorkRun(Tool):
             raise ToolConfigurationError("date_tolerance_days must be between 0 and 183")
         if not 0 < self.gh_efficiency <= 1:
             raise ToolConfigurationError("gh_efficiency must be in the interval (0, 1]")
+        if self.source_ra is None or self.source_dec is None:
+            raise ToolConfigurationError("source_ra and source_dec are required for DL3 generation")
+        if not 0 <= self.source_ra < 360:
+            raise ToolConfigurationError("source_ra must be in the interval [0, 360) degrees")
+        if not -90 <= self.source_dec <= 90:
+            raise ToolConfigurationError("source_dec must be in the interval [-90, 90] degrees")
+        if not self.background_energy_edges:
+            raise ToolConfigurationError("background_energy_edges must be configured")
+        if not self.background_theta_edges:
+            raise ToolConfigurationError("background_theta_edges must be configured")
+        try:
+            Background2DMaker(
+                energy_edges=self.background_energy_edges,
+                theta_edges=self.background_theta_edges,
+                spectral_index=self.background_spectral_index,
+            )
+        except (TypeError, ValueError) as error:
+            raise ToolConfigurationError(f"Invalid background binning: {error}") from error
 
         self.target_dl2_file = find_target_dl2_file(self.dl2_path, self.run_number)
         self.target_dl2_table = LSTDL2EventTable(self.target_dl2_file)
@@ -382,6 +483,23 @@ class BuildWorkRun(Tool):
         target_link = self.workrun_dir / self.target_dl2_file.name
         create_safe_link(self.target_dl2_file, target_link)
 
+        irf_generator = IRFGenerator(str(Path(self.irf_output_dir).expanduser().resolve()))
+        linked_irf_nodes = []
+        for node in self.irf_nodes:
+            irf_file = irf_generator.make_irf_node(node)
+            irf_node_link = self.workrun_dir / "irf" / node.pointing_name
+            create_safe_link(irf_file.parent, irf_node_link)
+            linked_irf_nodes.append(irf_node_link)
+
+        target_dl3_file = generate_target_dl3(
+            target_link,
+            self.workrun_dir / "irf",
+            self.workrun_dir,
+            source_name=self.source_name,
+            source_ra_deg=self.source_ra,
+            source_dec_deg=self.source_dec,
+        )
+
         generated_offrun_dl2_files = reconstruct_off_runs(
             self.offrun_dl1_files,
             Path(self.target_dl2_table.model_directory).expanduser().resolve(),
@@ -391,18 +509,44 @@ class BuildWorkRun(Tool):
         if self.offrun_dl1_files and not generated_offrun_dl2_files:
             self.log.warning("No off-run DL2 files were generated; inspect the DL1ToDL2Tool messages")
 
-        irf_generator = IRFGenerator(str(Path(self.irf_output_dir).expanduser().resolve()))
-        linked_irf_nodes = []
-        for node in self.irf_nodes:
-            irf_file = irf_generator.make_irf_node(node)
-            irf_node_link = self.workrun_dir / "irf" / node.pointing_name
-            create_safe_link(irf_file.parent, irf_node_link)
-            linked_irf_nodes.append(irf_node_link)
+        background_file = build_dl2_background(
+            target_link,
+            target_dl3_file,
+            self.offrun_dl2_dir,
+            self.workrun_dir / "background2d.fits",
+            energy_edges=self.background_energy_edges,
+            theta_edges=self.background_theta_edges,
+            spectral_index=self.background_spectral_index,
+            exclude_run_numbers=self.background_exclude_run_numbers,
+            overwrite=True,
+        )
 
         config_path = self.workrun_dir / "workrun.toml"
         write_workrun_config(
             config_path,
             {
+                "BuildWorkRun": {
+                    "run_number": self.run_number,
+                    "dl2_path": self.dl2_path,
+                    "data_check_path": self.data_check_path,
+                    "offrun_data_check_path": self.offrun_data_check_path,
+                    "offrun_dl1_path": self.offrun_dl1_path,
+                    "mc_dl2_path": self.mc_dl2_path,
+                    "irf_output_dir": self.irf_output_dir,
+                    "output_dir": self.output_dir,
+                    "source_name": self.source_name,
+                    "source_ra": self.source_ra,
+                    "source_dec": self.source_dec,
+                    "background_energy_edges": self.background_energy_edges,
+                    "background_theta_edges": self.background_theta_edges,
+                    "background_spectral_index": self.background_spectral_index,
+                    "background_exclude_run_numbers": self.background_exclude_run_numbers,
+                    "zenith_tolerance_deg": self.zenith_tolerance_deg,
+                    "nsb_relative_tolerance": self.nsb_relative_tolerance,
+                    "date_tolerance_days": self.date_tolerance_days,
+                    "require_matching_tailcuts": self.require_matching_tailcuts,
+                    "gh_efficiency": self.gh_efficiency,
+                },
                 "target": {
                     "run_number": self.run_number,
                     "dl2_file": self.target_dl2_file,
@@ -439,12 +583,30 @@ class BuildWorkRun(Tool):
                     "node_count": len(self.irf_nodes),
                     "linked_nodes": linked_irf_nodes,
                 },
+                "dl3": {
+                    "file": target_dl3_file,
+                    "input_irf_path": self.workrun_dir / "irf",
+                    "irf_file_pattern": WORKRUN_IRF_FILE_PATTERN,
+                    "source_name": self.source_name,
+                    "source_ra_deg": self.source_ra,
+                    "source_dec_deg": self.source_dec,
+                },
+                "background": {
+                    "file": background_file,
+                    "offrun_dl2_path": self.offrun_dl2_dir,
+                    "energy_edges_tev": self.background_energy_edges,
+                    "theta_edges_deg": self.background_theta_edges,
+                    "spectral_index": self.background_spectral_index,
+                    "excluded_run_numbers": self.background_exclude_run_numbers,
+                },
             },
         )
 
         self.log.info("Work-run directory: %s", self.workrun_dir)
         self.log.info("Compatible off-run DL1 files: %d", len(self.offrun_dl1_files))
         self.log.info("Linked IRF nodes: %d", len(linked_irf_nodes))
+        self.log.info("Target DL3 file: %s", target_dl3_file)
+        self.log.info("DL2 background file: %s", background_file)
 
 
 def main() -> None:

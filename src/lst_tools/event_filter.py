@@ -105,5 +105,5 @@ class EventFilter:
 
     def __call__(self, data: pd.DataFrame) -> pd.DataFrame:
         after_gh_cuts = apply_energy_dependent_gammaness_cuts(data, self.energy_low, self.energy_high, self.gh_cuts)
-        after_intensity_cuts = after_gh_cuts.iloc[after_gh_cuts["intensity"].ge(self.intensity_cuts)]
+        after_intensity_cuts = after_gh_cuts.loc[after_gh_cuts["intensity"].ge(self.intensity_cuts)]
         return after_intensity_cuts

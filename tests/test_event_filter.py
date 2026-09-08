@@ -1,7 +1,8 @@
+import numpy as np
 import pandas as pd
 import pytest
 
-from lst_tools.event_filter import apply_energy_dependent_gammaness_cuts
+from lst_tools.event_filter import EventFilter, apply_energy_dependent_gammaness_cuts
 
 
 @pytest.fixture
@@ -71,3 +72,27 @@ def test_empty_configuration_returns_empty_frame(events):
 def test_invalid_cut_configuration(events, energy_low, energy_high, gh_cuts, message):
     with pytest.raises(ValueError, match=message):
         apply_energy_dependent_gammaness_cuts(events, energy_low, energy_high, gh_cuts)
+
+
+def test_from_e_edges(events):
+    filter = EventFilter.from_e_edges(0.5, np.array([0.1, 0.3, 0.5, 1.0]), np.array([0.6, 0.8]))
+
+    assert filter.intensity_cuts == 0.5
+    assert filter.energy_low.tolist() == [0.1, 0.3, 0.5]
+    assert filter.energy_high.tolist() == [0.3, 0.5, 1.0]
+    assert filter.gh_cuts.tolist() == [0.6, 0.8]
+
+
+def test_event_filter_applies_gammaness_and_intensity_cuts(events):
+    events = events.assign(intensity=[100, 100, 100, 100, 40, 60, 100, 100, 100])
+    event_filter = EventFilter(
+        intensity_cuts=50,
+        energy_low=np.array([0.1, 0.3]),
+        energy_high=np.array([0.3, 1.0]),
+        gh_cuts=np.array([0.6, 0.8]),
+    )
+
+    result = event_filter(events)
+
+    assert result["event_id"].tolist() == [1, 5]
+    assert result.index.tolist() == [3, 2]
