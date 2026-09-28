@@ -5,6 +5,7 @@ import pytest
 
 from lst_tools.dl2 import LSTDL2EventTable
 from lst_tools.dl2 import dl2table as dl2table_module
+from lst_tools.dl2 import dl2table_base as dl2table_base_module
 
 
 @pytest.fixture
@@ -39,9 +40,9 @@ def patched_dl2_io(monkeypatch):
         assert data is events
         return 12.5, 15.0
 
-    monkeypatch.setattr(dl2table_module.pd, "read_hdf", read_hdf)
+    monkeypatch.setattr(dl2table_base_module.pd, "read_hdf", read_hdf)
     monkeypatch.setattr(dl2table_module, "get_effective_time", get_effective_time)
-    monkeypatch.setattr(dl2table_module, "read_dl2_provenance", lambda filename: provenance)
+    monkeypatch.setattr(dl2table_base_module, "read_dl2_provenance", lambda filename: provenance)
     monkeypatch.setattr(dl2table_module, "get_intensity_cut", lambda data: 21.0)
 
     return events, calls
@@ -84,7 +85,7 @@ def test_rejects_filename_without_run_number_before_reading_file(monkeypatch):
     def unexpected_read(*args, **kwargs):
         pytest.fail("DL2 file should not be read when its run number is invalid")
 
-    monkeypatch.setattr(dl2table_module.pd, "read_hdf", unexpected_read)
+    monkeypatch.setattr(dl2table_base_module.pd, "read_hdf", unexpected_read)
 
     with pytest.raises(ValueError, match="run number"):
         LSTDL2EventTable("/data/dl2_without_run_number.h5")
