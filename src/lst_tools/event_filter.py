@@ -47,6 +47,53 @@ def _validated_cut_bins(
     return bins
 
 
+def get_energy_dependent_gammaness_cuts(
+    data: pd.DataFrame,
+    energy_edges: Iterable[float],
+    survival_fraction: float,
+) -> np.ndarray:
+    """Compute gammaness cuts for a target survival fraction in each energy bin.
+
+    Parameters
+    ----------
+    data
+        Event data containing ``reco_energy`` and ``gammaness`` columns.
+    energy_edges
+        Energy-bin edges.
+    survival_fraction
+        Fraction of events to retain above the gammaness threshold.
+        Must be between 0 and 1.
+
+    Returns
+    -------
+    np.ndarray
+        Gammaness cut for each energy bin. Bins without events get NaN.
+    """
+    if not 0 < survival_fraction <= 1:
+        raise ValueError("survival_fraction must be in (0, 1]")
+
+    energy_edges = np.asarray(energy_edges, dtype=float)
+    cuts = np.full(len(energy_edges) - 1, np.nan)
+
+    energy = data["reco_energy"]
+    gammaness = data["gammaness"]
+
+    for i, (low, high) in enumerate(pairwise(energy_edges)):
+        mask = energy.ge(low) & energy.lt(high) & gammaness.notna()
+
+        values = gammaness.loc[mask].to_numpy()
+
+        if len(values) == 0:
+            continue
+
+        cuts[i] = np.quantile(
+            values,
+            1 - survival_fraction,
+        )
+
+    return cuts
+
+
 def apply_energy_dependent_gammaness_cuts(
     data: pd.DataFrame,
     energy_low: Iterable[float],

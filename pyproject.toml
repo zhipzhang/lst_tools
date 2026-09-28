@@ -22,6 +22,7 @@ dependencies = [
     "gammapy",
     "hist",
     "h5py",
+    "pyirf",
     "uhi",
 ]
 
