@@ -1,4 +1,5 @@
 import re
+from functools import cached_property
 from os import PathLike
 from pathlib import Path
 
@@ -45,11 +46,11 @@ class LSTDL2EventTable:
     def data(self):
         return self.dl2_params
 
-    @property
+    @cached_property
     def pointing_ra(self) -> u.Quantity:
         return self.pointing.pointing_ra
 
-    @property
+    @cached_property
     def pointing_dec(self) -> u.Quantity:
         return self.pointing.pointing_dec
 
