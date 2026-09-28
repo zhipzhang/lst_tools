@@ -26,7 +26,7 @@ class Pointing:
     @property
     def altaz(self):
         frame = AltAz(obstime=self.trigger_time, location=LST_LOCATION)
-        return SkyCoord(self.pointing_alt, self.pointing_az, frame=frame)
+        return SkyCoord(alt=self.pointing_alt, az=self.pointing_az, frame=frame)
 
     @property
     def icrs(self):
@@ -39,10 +39,8 @@ class Pointing:
 
     @property
     def pointing_ra(self):
-        mean_pointing = mean_direction(self.icrs)
-        return mean_pointing.icrs.ra
+        return mean_direction(self.icrs).ra
 
     @property
     def pointing_dec(self):
-        mean_pointing = mean_direction(self.icrs)
-        return mean_pointing.ircs.dec
+        return mean_direction(self.icrs).dec

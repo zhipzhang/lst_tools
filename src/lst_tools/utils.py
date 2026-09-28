@@ -41,10 +41,11 @@ def altaz_to_icrs(
 def mean_direction(coordinates: SkyCoord) -> SkyCoord:
     """Return the spherical mean of a set of ICRS directions."""
     mean_x, mean_y, mean_z = coordinates.cartesian.xyz.mean(axis=1)
-    return SkyCoord(
+    mean = SkyCoord(
         x=mean_x,
         y=mean_y,
         z=mean_z,
         representation_type="cartesian",
         frame="icrs",
     )
+    return SkyCoord(ra=mean.spherical.lon, dec=mean.spherical.lat, frame="icrs")
