@@ -24,9 +24,9 @@ class LSTDL2EventTable:
         self.rf_model_directory: str | None = None
         self.analyze_provenance()
         self.pointing = Pointing(
-            self.dl2_params["alt_tel"],
-            self.dl2_params["az_tel"],
-            self.dl2_params["trigger_time"],
+            self.dl2_params["alt_tel"].to_numpy(dtype=float),
+            self.dl2_params["az_tel"].to_numpy(dtype=float),
+            self.dl2_params["trigger_time"].to_numpy(dtype=float),
         )
 
     def __repr__(self) -> str:
