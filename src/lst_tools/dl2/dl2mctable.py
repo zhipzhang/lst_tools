@@ -23,16 +23,14 @@ class LSTDL2MCTable(LSTDL2TableBase):
             energy_max=simu_config.energy_range_max,
             max_impact=simu_config.max_scatter_range,
             spectral_index=simu_config.spectral_index,
-            viewcone_min=simu_config.min_viewcone_radius,
-            viewcone_max=simu_config.max_viewcone_radius,
+            viewcone_min=0 * u.deg,  # here, we enforce a zero viewcone for point simulation
+            viewcone_max=0 * u.deg,
         )
 
-    def assign_weights_for_event(self, t_eff: u.Quantity, spectrum=CRAB_MAGIC_JHEAP2015) -> NDArray[np.float64]:
+    def calculate_weights_for_event(self, t_eff: u.Quantity, spectrum=CRAB_MAGIC_JHEAP2015) -> NDArray[np.float64]:
         simulated_spectrum = PowerLaw.from_simulation(self.sim_info, t_eff)
         mc_energy = self.dl2_params["mc_energy"].to_numpy() * u.TeV
-        weights = calculate_event_weights(
-            mc_energy, target_spectrum=spectrum, simulated_spectrum=simulated_spectrum
-        )
+        weights = calculate_event_weights(mc_energy, target_spectrum=spectrum, simulated_spectrum=simulated_spectrum)
         return weights
 
     @property
