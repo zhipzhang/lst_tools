@@ -9,7 +9,8 @@ from astropy.time import Time
 from astropy.utils import iers
 
 from lst_tools.bkg import SkyOffsetEvents, sky_offset_events_from_lstdl2
-from lst_tools.bkg.lst_adapter import LST_LOCATION, REQUIRED_COLUMNS
+from lst_tools.bkg.lst_adapter import REQUIRED_COLUMNS
+from lst_tools.location import LST_LOCATION
 
 
 @pytest.fixture(scope="module", autouse=True)

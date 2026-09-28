@@ -5,29 +5,11 @@ from typing import Protocol
 
 import astropy.units as u
 import pandas as pd
-from astropy.coordinates import AltAz, EarthLocation, SkyCoord, SkyOffsetFrame
-from astropy.coordinates.erfa_astrom import ErfaAstromInterpolator, erfa_astrom
-from astropy.time import Time
+from astropy.coordinates import EarthLocation, SkyOffsetFrame
 
+from ..location import LST_LOCATION
+from ..utils import altaz_to_icrs, mean_direction
 from .events import SkyOffsetEvents
-
-LST_LOCATION = EarthLocation(
-    lat=28.761758 * u.deg,
-    lon=-17.890659 * u.deg,
-    height=2200 * u.m,
-)
-
-
-def _mean_direction(coordinates: SkyCoord) -> SkyCoord:
-    """Return the spherical mean of a set of ICRS directions."""
-    mean_x, mean_y, mean_z = coordinates.cartesian.xyz.mean(axis=1)
-    return SkyCoord(
-        x=mean_x,
-        y=mean_y,
-        z=mean_z,
-        representation_type="cartesian",
-        frame="icrs",
-    )
 
 
 class LSTDL2EventTableLike(Protocol):
@@ -86,25 +68,21 @@ def sky_offset_events_from_lstdl2(
     if selected.empty:
         return SkyOffsetEvents(livetime=livetime)
 
-    event_time = Time(selected["trigger_time"].to_numpy(dtype=float), format="unix")
-    altaz_frame = AltAz(obstime=event_time, location=location)
-    pointing_altaz = SkyCoord(
-        alt=selected["alt_tel"].to_numpy(dtype=float) * u.rad,
-        az=selected["az_tel"].to_numpy(dtype=float) * u.rad,
-        frame=altaz_frame,
+    event_time = selected["trigger_time"].to_numpy(dtype=float)
+    pointing = altaz_to_icrs(
+        event_time,
+        selected["alt_tel"].to_numpy(dtype=float),
+        selected["az_tel"].to_numpy(dtype=float),
+        location=location,
     )
-    reconstructed_altaz = SkyCoord(
-        alt=selected["reco_alt"].to_numpy(dtype=float) * u.rad,
-        az=selected["reco_az"].to_numpy(dtype=float) * u.rad,
-        frame=altaz_frame,
+    reconstructed = altaz_to_icrs(
+        event_time,
+        selected["reco_alt"].to_numpy(dtype=float),
+        selected["reco_az"].to_numpy(dtype=float),
+        location=location,
     )
 
-    with erfa_astrom.set(ErfaAstromInterpolator(time_resolution=100 * u.s)):
-        pointing = pointing_altaz.icrs
-        reconstructed = reconstructed_altaz.icrs
-
-    mean_pointing = _mean_direction(pointing)
-    offsets = reconstructed.transform_to(SkyOffsetFrame(origin=mean_pointing))
+    offsets = reconstructed.transform_to(SkyOffsetFrame(origin=mean_direction(pointing)))
     return SkyOffsetEvents(
         x=offsets.lon,
         y=offsets.lat,

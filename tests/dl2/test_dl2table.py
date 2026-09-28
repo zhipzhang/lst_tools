@@ -12,6 +12,9 @@ def patched_dl2_io(monkeypatch):
     events = pd.DataFrame(
         {
             "intensity": [100.0, 150.0, 200.0],
+            "alt_tel": [1.0, 1.0, 1.0],
+            "az_tel": [0.5, 0.5, 0.5],
+            "trigger_time": [1_700_000_000.0, 1_700_000_001.0, 1_700_000_002.0],
         }
     )
     provenance = {
@@ -72,7 +75,7 @@ def test_parses_processing_metadata(patched_dl2_io):
 )
 def test_parses_declination_line(directory_name, expected):
     table = object.__new__(LSTDL2EventTable)
-    table.model_directory = f"/models/nsb_tuning_0.81/{directory_name}"
+    table.rf_model_directory = f"/models/nsb_tuning_0.81/{directory_name}"
 
     assert table.dec_line == expected
 
