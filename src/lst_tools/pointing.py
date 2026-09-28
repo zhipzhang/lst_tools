@@ -32,17 +32,17 @@ class Pointing:
     def icrs(self):
         return altaz_to_icrs(
             self.trigger_time,
-            self.pointing_alt,
-            self.pointing_az,
+            self.pointing_alt.to_value("rad"),
+            self.pointing_az.to_value("rad"),
             location=LST_LOCATION,
         )
 
     @property
     def pointing_ra(self):
         mean_pointing = mean_direction(self.icrs)
-        return mean_pointing.ra
+        return mean_pointing.icrs.ra
 
     @property
     def pointing_dec(self):
         mean_pointing = mean_direction(self.icrs)
-        return mean_pointing.dec
+        return mean_pointing.ircs.dec
