@@ -40,6 +40,7 @@ DEFAULT_SPEC = {
     "runsummary": {
         "n_flatfield": ("num_flatfield", "first"),
         "n_pedestal": ("num_pedestals", "first"),
+        "observation_time": ("elapsed_time", "first"),
     },
 }
 

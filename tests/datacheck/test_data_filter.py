@@ -26,6 +26,7 @@ def sample_pd() -> dict:
                 "mean_ra": [10.4, 10.4, 10.4],
                 "mean_dec": [10, 20, 30],
                 "mean_cos_zd": [0.1, 0.2, 0.3],
+                "observation_time": [1800, 1800, 1800],
                 "pointing_dec_std": [0.01, 0.02, 0.03],
             }
         ),
@@ -39,6 +40,7 @@ def sample_pd() -> dict:
                 "mean_ra": [10.4] * 8,
                 "mean_dec": [10] * 8,
                 "mean_cos_zd": [0.5] * 8,
+                "observation_time": [1800] * 8,
                 "pointing_dec_std": [0.01] * 8,
                 # Run 1 passes every advanced cut. Runs 2–8 each fail one
                 # configurable threshold in the order tested below.
@@ -78,6 +80,19 @@ def test_apply_basic_cuts(sample_pd: dict):
     result = data_filter.apply_basic_cuts(sample_pd["lack_advanced"])
     assert isinstance(result, pd.DataFrame)
     assert result["run_number"].tolist() == [1]
+
+
+def test_apply_basic_cuts_min_observation_time(sample_pd: dict):
+    data_filter = DataFilter(
+        source_ra=10,
+        source_dec=10,
+        max_pointing_dec_std=0.015,
+        min_angle_to_source=0,
+        max_angle_to_source=30,
+        min_observation_time=1801,
+    )
+    result = data_filter.apply_basic_cuts(sample_pd["lack_advanced"])
+    assert result.empty
 
 
 def test_apply_advanced_cuts(sample_pd: dict):

@@ -25,6 +25,7 @@ def test_select_offruns_applies_advanced_cuts_but_not_source_angle_cut():
             "mean_ra": [10.0, 20.0, 30.0],
             "mean_dec": [0.0, 0.0, 0.0],
             "mean_cos_zd": [0.8, 0.8, 0.8],
+            "observation_time": [1800, 1800, 1800],
             "pointing_dec_std": [0.001, 0.001, 0.001],
             "mean_diffuse_nsb_std": [2.0, 2.0, 2.0],
             "mean_intensity_threshold": [40.0, 40.0, 40.0],

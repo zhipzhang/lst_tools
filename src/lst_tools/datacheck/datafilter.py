@@ -19,7 +19,9 @@ class DataFilter:
     max_angle_to_source: float = 0.5
     min_zenith_angle: float = 0
     max_zenith_angle: float = 90
+    min_galactic_lat: float = 0
     max_pointing_dec_std: float = 0.01  # degrees
+    min_observation_time: float = 0
 
     max_diffuse_nsb_std: float = 2.3
     max_intensity_at_half_peak_rate: float = 50
@@ -39,6 +41,7 @@ class DataFilter:
         "mean_dec",
         "mean_cos_zd",
         "pointing_dec_std",
+        "observation_time",
     )
     ADVANCED_COLUMNS = (
         "mean_diffuse_nsb_std",
@@ -81,9 +84,11 @@ class DataFilter:
         pointing = SkyCoord(
             ra=statistics["mean_ra"].to_numpy() * u.Unit("deg"),
             dec=statistics["mean_dec"].to_numpy() * u.Unit("deg"),
+            frame="icrs",
         )
-        source = SkyCoord(ra=self.source_ra * u.Unit("deg"), dec=self.source_dec * u.Unit("deg"))
-        angle_to_source = pointing.separation(source).to_value("deg")
+        pointing_galatic_latitude = np.abs(np.asarray(pointing.galactic.b.to_value("deg")))
+        source = SkyCoord(ra=self.source_ra * u.Unit("deg"), dec=self.source_dec * u.Unit("deg"), frame="icrs")
+        angle_to_source = np.asarray(pointing.separation(source).to_value("deg"))
 
         min_cos_zenith = np.cos(np.radians(self.max_zenith_angle))
         max_cos_zenith = np.cos(np.radians(self.min_zenith_angle))
@@ -95,7 +100,9 @@ class DataFilter:
             & statistics["n_pedestal"].ge(1)
             & (angle_to_source >= self.min_angle_to_source)
             & (angle_to_source <= self.max_angle_to_source)
+            & (pointing_galatic_latitude >= self.min_galactic_lat)
             & statistics["mean_cos_zd"].between(min_cos_zenith, max_cos_zenith)
+            & statistics["observation_time"].ge(self.min_observation_time)
             & statistics["pointing_dec_std"].le(self.max_pointing_dec_std)
         )
         return statistics.loc[mask]
