@@ -1,0 +1,617 @@
+"""Build an analysis workspace for one LST DL2 run.
+
+The command locates one target DL2 file, selects compatible off runs from
+DataCheck statistics, links the target, prepares its matching IRFs and DL3
+file, reconstructs the off-run DL1 files, and records the result in TOML.
+"""
+
+from __future__ import annotations
+
+import json
+import re
+import warnings
+from dataclasses import dataclass
+from pathlib import Path
+from typing import ClassVar
+
+import numpy as np
+import pandas as pd
+from ctapipe.core import Tool, ToolConfigurationError, traits
+from lstchain.paths import dl2_to_dl3_filename
+from lstchain.tools.lstchain_create_dl3_file import DataReductionFITSWriter
+from lstchain.tools.lstchain_dl1_to_dl2 import DL1ToDL2Tool
+
+from lst_tools.bkg import Background2DMaker
+from lst_tools.datacheck import DataCheckTables
+from lst_tools.dl2 import LSTDL2EventTable
+from lst_tools.irf import IRFGenerator
+from lst_tools.irf.utils import MC_DL2_PATH, find_dl2_mc_path
+from lst_tools.scripts.build_dl2_background import build_dl2_background
+from lst_tools.scripts.init_lstana import create_safe_link
+
+_RUN_PATTERN = re.compile(r"Run(?P<run_number>\d+)")
+_TAILCUT_PATTERN = re.compile(r"(?:^|[/_])tailcut(?P<levels>\d+)(?:[/_]|$)")
+WORKRUN_IRF_FILE_PATTERN = "azimuth_*_zenith_*/irf.fits.gz"
+
+
+@dataclass(frozen=True)
+class OffRunSelectionBounds:
+    """Bounds used to select off runs similar to the target run."""
+
+    nsb_min: float
+    nsb_max: float
+    zenith_min_deg: float
+    zenith_max_deg: float
+    target_day_of_year: int
+    date_tolerance_days: int
+
+
+def find_tailcuts_level(path: str | Path) -> tuple[int, int] | None:
+    """Extract picture and boundary tailcut levels from a resolved path."""
+    match = _TAILCUT_PATTERN.search(str(path))
+    if match is None:
+        return None
+
+    digits = match.group("levels")
+    if len(digits) % 2:
+        return None
+
+    midpoint = len(digits) // 2
+    return int(digits[:midpoint]), int(digits[midpoint:])
+
+
+def find_target_dl2_file(dl2_path: str | Path, run_number: int) -> Path:
+    """Find exactly one DL2 file for ``run_number`` under a file or directory."""
+    search_path = Path(dl2_path).expanduser()
+    candidates = [search_path] if search_path.is_file() else list(search_path.rglob("*.h5"))
+    matches = []
+    for candidate in candidates:
+        run_match = _RUN_PATTERN.search(candidate.name)
+        if "dl2" in candidate.name.lower() and run_match and int(run_match.group("run_number")) == run_number:
+            matches.append(candidate)
+
+    if not matches:
+        raise ToolConfigurationError(f"No DL2 file found for Run{run_number:05d} under {search_path}")
+    if len(matches) > 1:
+        paths = ", ".join(str(path) for path in sorted(matches))
+        raise ToolConfigurationError(f"Multiple DL2 files found for Run{run_number:05d}: {paths}")
+    return matches[0].resolve()
+
+
+def find_datacheck_files(data_check_path: str | Path) -> list[Path]:
+    """Return the DataCheck HDF5 files contained in a file or directory."""
+    search_path = Path(data_check_path).expanduser()
+    files = [search_path] if search_path.is_file() else sorted(search_path.rglob("*.h5"))
+    if not files:
+        raise ToolConfigurationError(f"No DataCheck files found under {search_path}")
+    return [path.resolve() for path in files]
+
+
+def seasonal_day_of_year(dates: pd.Series) -> pd.Series:
+    """Convert YYYYMMDD values to day-of-year values in a common leap year."""
+    numeric_dates = pd.to_numeric(dates, errors="coerce").astype("Int64")
+    parsed_dates = pd.to_datetime(numeric_dates.astype("string"), format="%Y%m%d", errors="coerce")
+    reference_dates = pd.to_datetime(
+        "2000" + parsed_dates.dt.strftime("%m%d").fillna(""),
+        format="%Y%m%d",
+        errors="coerce",
+    )
+    return reference_dates.dt.dayofyear.astype(float)
+
+
+def select_matching_off_runs(
+    target_statistics: pd.DataFrame,
+    offrun_statistics: pd.DataFrame,
+    run_number: int,
+    *,
+    nsb_relative_tolerance: float,
+    zenith_tolerance_deg: float,
+    date_tolerance_days: int,
+) -> tuple[pd.DataFrame, OffRunSelectionBounds]:
+    """Select runs within the configured NSB, zenith, and seasonal date bounds."""
+    required_columns = {"run_number", "date", "mean_cos_zd", "mean_diffuse_nsb_std"}
+    for name, statistics in (("target", target_statistics), ("off-run", offrun_statistics)):
+        missing_columns = required_columns.difference(statistics.columns)
+        if missing_columns:
+            raise ValueError(f"{name} DataCheck statistics are missing columns: {sorted(missing_columns)}")
+
+    target_rows = target_statistics.loc[target_statistics["run_number"].eq(run_number)]
+    if target_rows.empty:
+        raise ToolConfigurationError(f"Run{run_number:05d} is missing from the DataCheck statistics")
+    if len(target_rows) > 1:
+        raise ToolConfigurationError(f"Run{run_number:05d} occurs more than once in the DataCheck statistics")
+
+    target = target_rows.iloc[0]
+    target_nsb = float(target["mean_diffuse_nsb_std"])
+    target_cos_zenith = float(np.clip(target["mean_cos_zd"], -1, 1))
+    if not np.isfinite(target_nsb) or not np.isfinite(target_cos_zenith):
+        raise ToolConfigurationError(f"Run{run_number:05d} has invalid NSB or zenith statistics")
+    target_zenith_deg = float(np.degrees(np.arccos(target_cos_zenith)))
+    target_day_of_year = seasonal_day_of_year(pd.Series([target["date"]])).iloc[0]
+    if not np.isfinite(target_day_of_year):
+        raise ToolConfigurationError(f"Run{run_number:05d} has an invalid DataCheck date: {target['date']}")
+
+    bounds = OffRunSelectionBounds(
+        nsb_min=target_nsb * (1 - nsb_relative_tolerance),
+        nsb_max=target_nsb * (1 + nsb_relative_tolerance),
+        zenith_min_deg=max(0.0, target_zenith_deg - zenith_tolerance_deg),
+        zenith_max_deg=min(180.0, target_zenith_deg + zenith_tolerance_deg),
+        target_day_of_year=int(target_day_of_year),
+        date_tolerance_days=date_tolerance_days,
+    )
+
+    zenith_deg = np.degrees(np.arccos(offrun_statistics["mean_cos_zd"].clip(-1, 1)))
+    day_of_year = seasonal_day_of_year(offrun_statistics["date"])
+    direct_date_distance = (day_of_year - bounds.target_day_of_year).abs()
+    seasonal_date_distance = direct_date_distance.where(direct_date_distance <= 183, 366 - direct_date_distance)
+    selection_mask = (
+        offrun_statistics["mean_diffuse_nsb_std"].between(bounds.nsb_min, bounds.nsb_max)
+        & zenith_deg.between(bounds.zenith_min_deg, bounds.zenith_max_deg)
+        & seasonal_date_distance.le(bounds.date_tolerance_days)
+        & offrun_statistics["run_number"].ne(run_number)
+    )
+    return offrun_statistics.loc[selection_mask].copy(), bounds
+
+
+def find_compatible_offrun_dl1_files(
+    offrun_dl1_path: str | Path,
+    run_numbers: list[int],
+    expected_tailcuts: tuple[int, int],
+    *,
+    require_matching_tailcuts: bool = True,
+) -> list[Path]:
+    """Find off-run DL1 files, optionally requiring matching tailcuts."""
+    search_path = Path(offrun_dl1_path).expanduser()
+    compatible_files: list[Path] = []
+    seen_sources: set[Path] = set()
+
+    for run_number in run_numbers:
+        matching_files = sorted(search_path.rglob(f"*Run{run_number:05d}*.h5"))
+        matching_files = [path for path in matching_files if "dl1" in path.name.lower()]
+        if not matching_files:
+            warnings.warn(
+                f"No DL1 file found for selected off run Run{run_number:05d} under {search_path}; skipping",
+                stacklevel=2,
+            )
+            continue
+
+        for linked_path in matching_files:
+            try:
+                source_path = linked_path.resolve(strict=True)
+            except FileNotFoundError:
+                warnings.warn(f"Broken DL1 link {linked_path}; skipping", stacklevel=2)
+                continue
+
+            tailcuts = find_tailcuts_level(source_path)
+            if tailcuts != expected_tailcuts:
+                action = "skipping" if require_matching_tailcuts else "including because mismatches are allowed"
+                warnings.warn(
+                    f"Tailcuts mismatch for {linked_path}: found {tailcuts}, expected {expected_tailcuts}; {action}",
+                    stacklevel=2,
+                )
+                if require_matching_tailcuts:
+                    continue
+            if source_path not in seen_sources:
+                compatible_files.append(source_path)
+                seen_sources.add(source_path)
+
+    return compatible_files
+
+
+def expected_dl2_path(dl1_path: Path, output_dir: Path) -> Path:
+    """Return the output filename used by ``DL1ToDL2Tool``."""
+    return output_dir / dl1_path.name.replace("dl1", "dl2", 1)
+
+
+def reconstruct_off_runs(
+    dl1_files: list[Path],
+    model_directory: Path,
+    output_dir: Path,
+    *,
+    parent: Tool | None = None,
+) -> list[Path]:
+    """Create missing off-run DL2 files using the target run's models."""
+    output_dir.mkdir(parents=True, exist_ok=True)
+    pending_inputs = [path for path in dl1_files if not expected_dl2_path(path, output_dir).exists()]
+
+    if pending_inputs:
+        reconstruction_tool = DL1ToDL2Tool(
+            parent=parent,
+            input_files=pending_inputs,
+            path_models=model_directory,
+            output_dir=output_dir,
+        )
+        reconstruction_tool.setup()
+        reconstruction_tool.start()
+
+    expected_outputs = [expected_dl2_path(dl1, output_dir) for dl1 in dl1_files]
+    for missing_output in (path for path in expected_outputs if not path.exists()):
+        warnings.warn(f"DL1ToDL2Tool did not create {missing_output}", stacklevel=2)
+    return [path for path in expected_outputs if path.exists()]
+
+
+def generate_target_dl3(
+    input_dl2: Path,
+    input_irf_path: Path,
+    output_dir: Path,
+    *,
+    source_name: str,
+    source_ra_deg: float,
+    source_dec_deg: float,
+) -> Path:
+    """Generate the target DL3 file using the run-local IRF links."""
+    irf_files = sorted(input_irf_path.glob(WORKRUN_IRF_FILE_PATTERN))
+    if not irf_files:
+        raise ToolConfigurationError(
+            f"No run-local IRFs found under {input_irf_path} with pattern {WORKRUN_IRF_FILE_PATTERN!r}"
+        )
+
+    output_dir.mkdir(parents=True, exist_ok=True)
+    output_file = output_dir / dl2_to_dl3_filename(input_dl2, compress=False)
+    if output_file.is_file():
+        return output_file.resolve()
+
+    writer = DataReductionFITSWriter(
+        input_dl2=input_dl2,
+        output_dl3_path=output_dir,
+        input_irf_path=input_irf_path,
+        irf_file_pattern=WORKRUN_IRF_FILE_PATTERN,
+        source_name=source_name,
+        source_ra=f"{source_ra_deg} deg",
+        source_dec=f"{source_dec_deg} deg",
+    )
+    writer.setup()
+    writer.start()
+    writer.finish()
+
+    if not output_file.is_file():
+        raise RuntimeError(f"DataReductionFITSWriter did not create {output_file}")
+    return output_file.resolve()
+
+
+def _toml_value(value: object) -> str:
+    """Serialize the scalar/list values used by the work-run configuration."""
+    if isinstance(value, bool):
+        return "true" if value else "false"
+    if isinstance(value, (int, float)):
+        return repr(value)
+    if isinstance(value, Path):
+        return json.dumps(str(value))
+    if isinstance(value, str):
+        return json.dumps(value)
+    if isinstance(value, (list, tuple)):
+        return "[" + ", ".join(_toml_value(item) for item in value) + "]"
+    raise TypeError(f"Unsupported TOML value: {type(value).__name__}")
+
+
+def write_workrun_config(path: Path, sections: dict[str, dict[str, object]]) -> None:
+    """Write the important inputs, selection bounds, and products as TOML."""
+    lines = ["# Generated by build-workrun", ""]
+    for section_name, values in sections.items():
+        lines.append(f"[{section_name}]")
+        lines.extend(f"{key} = {_toml_value(value)}" for key, value in values.items() if value is not None)
+        lines.append("")
+    path.write_text("\n".join(lines), encoding="utf-8")
+
+
+class BuildWorkRun(Tool):
+    """Build the target DL2, IRF, DL3, and off-run products for one observation run."""
+
+    name = "build-workrun"
+    description = __doc__
+
+    run_number = traits.Int(default_value=None, allow_none=True, help="Run number to build").tag(config=True)
+    dl2_path = traits.Path(default_value="./dl2", help="Target DL2 file or directory").tag(config=True)
+    data_check_path = traits.Path(
+        default_value="./data_check",
+        help="DataCheck HDF5 file or directory containing the target run",
+    ).tag(config=True)
+    offrun_data_check_path = traits.Path(
+        default_value="./offruns/data_check",
+        help="DataCheck HDF5 file or directory containing off-run candidates",
+    ).tag(config=True)
+    offrun_dl1_path = traits.Path(
+        default_value="./offruns/dl1",
+        help="Directory containing candidate off-run DL1 files or links",
+    ).tag(config=True)
+    mc_dl2_path = traits.Path(
+        default_value=MC_DL2_PATH,
+        help="AllSky MC DL2 root used to locate IRF nodes",
+    ).tag(config=True)
+    irf_output_dir = traits.Path(default_value="./irf", help="Shared IRF output directory").tag(config=True)
+    output_dir = traits.Path(default_value="./workdir", help="Root directory for RunXXXXX workspaces").tag(config=True)
+    source_name = traits.Unicode(default_value="source", help="Source name stored in the target DL3 file").tag(
+        config=True
+    )
+    source_ra = traits.Float(
+        default_value=None,
+        allow_none=True,
+        help="Source right ascension in degrees, required for DL3 generation",
+    ).tag(config=True)
+    source_dec = traits.Float(
+        default_value=None,
+        allow_none=True,
+        help="Source declination in degrees, required for DL3 generation",
+    ).tag(config=True)
+    background_energy_edges = traits.List(
+        trait=traits.Float(),
+        default_value=[],
+        help="Background reconstructed-energy bin edges in TeV",
+    ).tag(config=True)
+    background_theta_edges = traits.List(
+        trait=traits.Float(),
+        default_value=[],
+        help="Background radial offset bin edges in degrees",
+    ).tag(config=True)
+    background_spectral_index = traits.Float(
+        default_value=-2.0,
+        help="Spectral index used for background differential-rate normalization",
+    ).tag(config=True)
+    background_exclude_run_numbers = traits.List(
+        trait=traits.Int(),
+        default_value=[],
+        help="Off-run numbers reserved for validation and excluded from background training",
+    ).tag(config=True)
+    zenith_tolerance_deg = traits.Float(
+        default_value=2.0,
+        help="Maximum zenith-angle difference for off runs, in degrees",
+    ).tag(config=True)
+    nsb_relative_tolerance = traits.Float(
+        default_value=0.1,
+        help="Maximum fractional NSB difference for off runs",
+    ).tag(config=True)
+    date_tolerance_days = traits.Int(
+        default_value=90,
+        help="Maximum seasonal calendar-day difference for off runs",
+    ).tag(config=True)
+    require_matching_tailcuts = traits.Bool(
+        default_value=True,
+        help="Require off-run DL1 files to have the same tailcuts as the target DL2",
+    ).tag(config=True)
+    gh_efficiency = traits.Float(default_value=0.7, help="Gamma efficiency used for IRF generation").tag(config=True)
+
+    aliases: ClassVar[dict[tuple[str, ...], str]] = {
+        ("r", "run", "run-number", "runnumber"): "BuildWorkRun.run_number",
+        ("dl2", "dl2-path"): "BuildWorkRun.dl2_path",
+        ("data-check", "data-check-path"): "BuildWorkRun.data_check_path",
+        ("offrun-data-check", "offrun-data-check-path"): "BuildWorkRun.offrun_data_check_path",
+        ("offrun-dl1", "offrun-dl1-path"): "BuildWorkRun.offrun_dl1_path",
+        ("mc-dl2", "mc-dl2-path"): "BuildWorkRun.mc_dl2_path",
+        ("irf-output", "irf-output-dir"): "BuildWorkRun.irf_output_dir",
+        ("o", "output", "output-dir"): "BuildWorkRun.output_dir",
+        ("source-name",): "BuildWorkRun.source_name",
+        ("source-ra",): "BuildWorkRun.source_ra",
+        ("source-dec",): "BuildWorkRun.source_dec",
+        ("background-energy-edges",): "BuildWorkRun.background_energy_edges",
+        ("background-theta-edges",): "BuildWorkRun.background_theta_edges",
+        ("background-spectral-index",): "BuildWorkRun.background_spectral_index",
+        ("background-exclude-run",): "BuildWorkRun.background_exclude_run_numbers",
+        ("zenith-off", "zenith-tolerance"): "BuildWorkRun.zenith_tolerance_deg",
+        ("nsb-level-off", "nsb-tolerance"): "BuildWorkRun.nsb_relative_tolerance",
+        ("date-tolerance-days", "month-day-tolerance"): "BuildWorkRun.date_tolerance_days",
+        ("gh-efficiency",): "BuildWorkRun.gh_efficiency",
+    }
+    flags: ClassVar[dict[str, tuple[dict[str, dict[str, bool]], str]]] = {
+        "require-matching-tailcuts": (
+            {"BuildWorkRun": {"require_matching_tailcuts": True}},
+            "Reject off-run DL1 files whose tailcuts differ from the target (default)",
+        ),
+        "allow-mismatched-tailcuts": (
+            {"BuildWorkRun": {"require_matching_tailcuts": False}},
+            "Allow off-run DL1 files whose tailcuts differ from the target",
+        ),
+    }
+
+    def setup(self) -> None:
+        if self.run_number is None or self.run_number < 0:
+            raise ToolConfigurationError("run_number is required and must be non-negative")
+        if not 0 <= self.nsb_relative_tolerance <= 1:
+            raise ToolConfigurationError("nsb_relative_tolerance must be between 0 and 1")
+        if self.zenith_tolerance_deg < 0:
+            raise ToolConfigurationError("zenith_tolerance_deg must be non-negative")
+        if not 0 <= self.date_tolerance_days <= 183:
+            raise ToolConfigurationError("date_tolerance_days must be between 0 and 183")
+        if not 0 < self.gh_efficiency <= 1:
+            raise ToolConfigurationError("gh_efficiency must be in the interval (0, 1]")
+        if self.source_ra is None or self.source_dec is None:
+            raise ToolConfigurationError("source_ra and source_dec are required for DL3 generation")
+        if not 0 <= self.source_ra < 360:
+            raise ToolConfigurationError("source_ra must be in the interval [0, 360) degrees")
+        if not -90 <= self.source_dec <= 90:
+            raise ToolConfigurationError("source_dec must be in the interval [-90, 90] degrees")
+        if not self.background_energy_edges:
+            raise ToolConfigurationError("background_energy_edges must be configured")
+        if not self.background_theta_edges:
+            raise ToolConfigurationError("background_theta_edges must be configured")
+        try:
+            Background2DMaker(
+                energy_edges=self.background_energy_edges,
+                theta_edges=self.background_theta_edges,
+                spectral_index=self.background_spectral_index,
+            )
+        except (TypeError, ValueError) as error:
+            raise ToolConfigurationError(f"Invalid background binning: {error}") from error
+
+        self.target_dl2_file = find_target_dl2_file(self.dl2_path, self.run_number)
+        self.target_dl2_table = LSTDL2EventTable(self.target_dl2_file)
+        if self.target_dl2_table.model_directory is None:
+            raise ToolConfigurationError(f"No trained-model directory found in {self.target_dl2_file} provenance")
+        if self.target_dl2_table.tailcut_level is None:
+            raise ToolConfigurationError(f"No tailcuts level found in {self.target_dl2_file} provenance")
+
+        self.target_data_check_files = find_datacheck_files(self.data_check_path)
+        target_data_check_tables = DataCheckTables.from_files([str(path) for path in self.target_data_check_files])
+        self.offrun_data_check_files = find_datacheck_files(self.offrun_data_check_path)
+        offrun_data_check_tables = DataCheckTables.from_files([str(path) for path in self.offrun_data_check_files])
+        self.matching_off_runs, self.selection_bounds = select_matching_off_runs(
+            target_data_check_tables.statistics,
+            offrun_data_check_tables.statistics,
+            self.run_number,
+            nsb_relative_tolerance=self.nsb_relative_tolerance,
+            zenith_tolerance_deg=self.zenith_tolerance_deg,
+            date_tolerance_days=self.date_tolerance_days,
+        )
+        if self.matching_off_runs.empty:
+            self.log.warning(
+                "No off runs matched the NSB, zenith, and seasonal date selection bounds; offdl2 will be empty"
+            )
+        self.offrun_dl1_files = find_compatible_offrun_dl1_files(
+            self.offrun_dl1_path,
+            self.matching_off_runs["run_number"].astype(int).tolist(),
+            self.target_dl2_table.tailcut_level,
+            require_matching_tailcuts=self.require_matching_tailcuts,
+        )
+        if not self.offrun_dl1_files and not self.matching_off_runs.empty:
+            failed_checks = "discovery and tailcut checks" if self.require_matching_tailcuts else "DL1 discovery"
+            self.log.warning(
+                "Off runs matched the DataCheck selection, but no files passed %s; offdl2 will be empty",
+                failed_checks,
+            )
+        self.irf_nodes = find_dl2_mc_path(
+            self.mc_dl2_path,
+            self.target_dl2_table,
+            gh_efficiency=self.gh_efficiency,
+        )
+        if not self.irf_nodes:
+            self.log.warning("No matching MC DL2 files were found; no IRFs will be linked")
+
+        self.workrun_dir = Path(self.output_dir).expanduser().resolve() / f"Run{self.run_number:05d}"
+        self.offrun_dl2_dir = self.workrun_dir / "offdl2"
+
+    def start(self) -> None:
+        self.workrun_dir.mkdir(parents=True, exist_ok=True)
+        target_link = self.workrun_dir / self.target_dl2_file.name
+        create_safe_link(self.target_dl2_file, target_link)
+
+        irf_generator = IRFGenerator(str(Path(self.irf_output_dir).expanduser().resolve()))
+        linked_irf_nodes = []
+        for node in self.irf_nodes:
+            irf_file = irf_generator.make_irf_node(node)
+            irf_node_link = self.workrun_dir / "irf" / node.pointing_name
+            create_safe_link(irf_file.parent, irf_node_link)
+            linked_irf_nodes.append(irf_node_link)
+
+        target_dl3_file = generate_target_dl3(
+            target_link,
+            self.workrun_dir / "irf",
+            self.workrun_dir,
+            source_name=self.source_name,
+            source_ra_deg=self.source_ra,
+            source_dec_deg=self.source_dec,
+        )
+
+        generated_offrun_dl2_files = reconstruct_off_runs(
+            self.offrun_dl1_files,
+            Path(self.target_dl2_table.model_directory).expanduser().resolve(),
+            self.offrun_dl2_dir,
+            parent=self,
+        )
+        if self.offrun_dl1_files and not generated_offrun_dl2_files:
+            self.log.warning("No off-run DL2 files were generated; inspect the DL1ToDL2Tool messages")
+
+        background_file = build_dl2_background(
+            target_link,
+            target_dl3_file,
+            self.offrun_dl2_dir,
+            self.workrun_dir / "background2d.fits",
+            energy_edges=self.background_energy_edges,
+            theta_edges=self.background_theta_edges,
+            spectral_index=self.background_spectral_index,
+            exclude_run_numbers=self.background_exclude_run_numbers,
+            overwrite=True,
+        )
+
+        config_path = self.workrun_dir / "workrun.toml"
+        write_workrun_config(
+            config_path,
+            {
+                "BuildWorkRun": {
+                    "run_number": self.run_number,
+                    "dl2_path": self.dl2_path,
+                    "data_check_path": self.data_check_path,
+                    "offrun_data_check_path": self.offrun_data_check_path,
+                    "offrun_dl1_path": self.offrun_dl1_path,
+                    "mc_dl2_path": self.mc_dl2_path,
+                    "irf_output_dir": self.irf_output_dir,
+                    "output_dir": self.output_dir,
+                    "source_name": self.source_name,
+                    "source_ra": self.source_ra,
+                    "source_dec": self.source_dec,
+                    "background_energy_edges": self.background_energy_edges,
+                    "background_theta_edges": self.background_theta_edges,
+                    "background_spectral_index": self.background_spectral_index,
+                    "background_exclude_run_numbers": self.background_exclude_run_numbers,
+                    "zenith_tolerance_deg": self.zenith_tolerance_deg,
+                    "nsb_relative_tolerance": self.nsb_relative_tolerance,
+                    "date_tolerance_days": self.date_tolerance_days,
+                    "require_matching_tailcuts": self.require_matching_tailcuts,
+                    "gh_efficiency": self.gh_efficiency,
+                },
+                "target": {
+                    "run_number": self.run_number,
+                    "dl2_file": self.target_dl2_file,
+                    "dl2_link": target_link,
+                    "data_check_files": self.target_data_check_files,
+                    "model_directory": self.target_dl2_table.model_directory,
+                    "tailcuts": list(self.target_dl2_table.tailcut_level or ()),
+                    "nsb_level": self.target_dl2_table.nsb_level,
+                    "declination_line": self.target_dl2_table.dec_line,
+                    "intensity_cut": float(self.target_dl2_table.intensity_cuts),
+                },
+                "offrun_selection": {
+                    "nsb_relative_tolerance": self.nsb_relative_tolerance,
+                    "nsb_min": self.selection_bounds.nsb_min,
+                    "nsb_max": self.selection_bounds.nsb_max,
+                    "zenith_tolerance_deg": self.zenith_tolerance_deg,
+                    "zenith_min_deg": self.selection_bounds.zenith_min_deg,
+                    "zenith_max_deg": self.selection_bounds.zenith_max_deg,
+                    "date_tolerance_days": self.date_tolerance_days,
+                    "target_day_of_year": self.selection_bounds.target_day_of_year,
+                    "data_check_files": self.offrun_data_check_files,
+                    "matching_run_numbers": self.matching_off_runs["run_number"].astype(int).tolist(),
+                    "compatible_dl1_files": self.offrun_dl1_files,
+                    "generated_dl2_files": generated_offrun_dl2_files,
+                },
+                "offrun_tailcuts": {
+                    "require_matching_tailcuts": self.require_matching_tailcuts,
+                    "target_tailcuts": list(self.target_dl2_table.tailcut_level or ()),
+                },
+                "irf": {
+                    "mc_dl2_path": Path(self.mc_dl2_path).expanduser().resolve(),
+                    "output_dir": Path(self.irf_output_dir).expanduser().resolve(),
+                    "gh_efficiency": self.gh_efficiency,
+                    "node_count": len(self.irf_nodes),
+                    "linked_nodes": linked_irf_nodes,
+                },
+                "dl3": {
+                    "file": target_dl3_file,
+                    "input_irf_path": self.workrun_dir / "irf",
+                    "irf_file_pattern": WORKRUN_IRF_FILE_PATTERN,
+                    "source_name": self.source_name,
+                    "source_ra_deg": self.source_ra,
+                    "source_dec_deg": self.source_dec,
+                },
+                "background": {
+                    "file": background_file,
+                    "offrun_dl2_path": self.offrun_dl2_dir,
+                    "energy_edges_tev": self.background_energy_edges,
+                    "theta_edges_deg": self.background_theta_edges,
+                    "spectral_index": self.background_spectral_index,
+                    "excluded_run_numbers": self.background_exclude_run_numbers,
+                },
+            },
+        )
+
+        self.log.info("Work-run directory: %s", self.workrun_dir)
+        self.log.info("Compatible off-run DL1 files: %d", len(self.offrun_dl1_files))
+        self.log.info("Linked IRF nodes: %d", len(linked_irf_nodes))
+        self.log.info("Target DL3 file: %s", target_dl3_file)
+        self.log.info("DL2 background file: %s", background_file)
+
+
+def main() -> None:
+    BuildWorkRun().run()
+
+
+if __name__ == "__main__":
+    main()
