@@ -23,10 +23,17 @@ class LSTDL2EventTable(LSTDL2TableBase):
             self.dl2_params["trigger_time"].to_numpy(dtype=float),
         )
 
-    def __repr__(self) -> str:
+    def __str__(self) -> str:
         total_events = len(self.dl2_params)
         event_rates = total_events / self.t_eff
-        return f"LSTDL2EventTable(run_id={self.run_id}, total_events={total_events}, event_rates={event_rates})"
+        events_above_100 = (self.dl2_params["intensity"] > 100).sum()
+        rate_above_100 = events_above_100 / self.t_eff
+
+        return (
+            f"LSTDL2EventTable(run_id={self.run_id}, total_events={total_events}, "
+            f"events_above_100={events_above_100}, event_rates={event_rates:.2f}, "
+            f"rate_above_100={rate_above_100:.2f})"
+        )
 
     @staticmethod
     def _parse_run_id(file_name: str) -> int:
