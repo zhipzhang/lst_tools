@@ -1,5 +1,6 @@
 import re
 from os import PathLike
+from typing import cast
 
 import pandas as pd
 from lstchain.io.io import dl2_params_lstcam_key
@@ -19,7 +20,10 @@ class LSTDL2TableBase:
 
     @staticmethod
     def read_dl2_events(file_name: str) -> pd.DataFrame:
-        return pd.read_hdf(file_name, key=dl2_params_lstcam_key)
+        """
+        Read DL2 events from a HDF5 file.
+        """
+        return cast(pd.DataFrame, pd.read_hdf(file_name, key=dl2_params_lstcam_key))
 
     @property
     def data(self):

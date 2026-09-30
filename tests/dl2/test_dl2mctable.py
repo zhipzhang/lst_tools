@@ -13,8 +13,8 @@ def test_parses_pointing_node():
     table = object.__new__(LSTDL2MCTable)
     table.file_name = MC_FILE_NAME
 
-    assert table.pointing_ze == pytest.approx(10.0)
-    assert table.pointing_az == pytest.approx(102.199)
+    assert table.pointing_ze.to_value("deg") == pytest.approx(10.0)
+    assert table.pointing_az.to_value("deg") == pytest.approx(102.199)
 
 
 def test_rejects_path_without_pointing_node():
