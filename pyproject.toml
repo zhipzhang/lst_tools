@@ -56,3 +56,12 @@ typeCheckingMode = "standard"
 reportMissingParameterType = "none"
 reportMissingTypeArgument = "none"
 reportUnannotatedClassAttribute = "none"
+
+
+[[tool.mypy.overrides]]
+module = [
+    "astropy.*",
+    "lstchain.*",
+    "pyirf.*",
+]
+ignore_missing_imports = true

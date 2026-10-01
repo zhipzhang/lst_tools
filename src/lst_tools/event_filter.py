@@ -141,16 +141,68 @@ def apply_energy_dependent_gammaness_cuts(
 
 @dataclass
 class EventFilter:
+    """Filter events using gammaness and intensity thresholds."""
+
     intensity_cuts: float
-    energy_low: np.ndarray
-    energy_high: np.ndarray
-    gh_cuts: np.ndarray
+    energy_low: np.ndarray | None
+    energy_high: np.ndarray | None
+    gh_cuts: np.ndarray | float
 
     @classmethod
-    def from_e_edges(cls, intensity_cuts: float, energy_edges: np.ndarray, gh_cuts: np.ndarray):
-        return cls(intensity_cuts, energy_edges[:-1], energy_edges[1:], gh_cuts)
+    def from_e_edges(
+        cls,
+        intensity_cuts: float,
+        energy_edges: np.ndarray | None,
+        gh_cuts: np.ndarray | float,
+    ) -> "EventFilter":
+        """Create a filter from contiguous energy-bin edges."""
+        if energy_edges is None:
+            energy_low = None
+            energy_high = None
+        else:
+            energy_edges = np.asarray(energy_edges, dtype=float)
+            if energy_edges.ndim != 1 or len(energy_edges) < 2:
+                raise ValueError("energy_edges must be a one-dimensional array with at least two entries")
+            if not np.all(np.isfinite(energy_edges)):
+                raise ValueError("energy_edges must contain only finite values")
+            if np.any(np.diff(energy_edges) <= 0):
+                raise ValueError("energy_edges must be strictly increasing")
 
-    def __call__(self, data: pd.DataFrame) -> pd.DataFrame:
-        after_gh_cuts = apply_energy_dependent_gammaness_cuts(data, self.energy_low, self.energy_high, self.gh_cuts)
-        after_intensity_cuts = after_gh_cuts.loc[after_gh_cuts["intensity"].ge(self.intensity_cuts)]
-        return after_intensity_cuts
+            energy_low = energy_edges[:-1]
+            energy_high = energy_edges[1:]
+
+        return cls(intensity_cuts, energy_low, energy_high, gh_cuts)
+
+    def __call__(
+        self,
+        data: pd.DataFrame,
+        energy_dependent_gh_cuts: bool = True,
+    ) -> pd.DataFrame:
+        """Return events passing the configured gammaness and intensity cuts."""
+        required_columns = {"gammaness", "intensity"}
+        if energy_dependent_gh_cuts:
+            required_columns.add("reco_energy")
+
+        missing_columns = required_columns.difference(data.columns)
+        if missing_columns:
+            missing = ", ".join(sorted(missing_columns))
+            raise ValueError(f"DataFrame is missing required columns: {missing}")
+
+        if energy_dependent_gh_cuts:
+            if self.energy_low is None or self.energy_high is None:
+                raise ValueError("energy_low and energy_high must be set when energy_dependent_gh_cuts is True")
+            if not isinstance(self.gh_cuts, np.ndarray):
+                raise TypeError("gh_cuts must be a NumPy array when energy_dependent_gh_cuts is True")
+
+            after_gh_cuts = apply_energy_dependent_gammaness_cuts(
+                data,
+                self.energy_low,
+                self.energy_high,
+                self.gh_cuts,
+            )
+        else:
+            if not isinstance(self.gh_cuts, (int, float, np.integer, np.floating)):
+                raise TypeError("gh_cuts must be a scalar number when energy_dependent_gh_cuts is False")
+            after_gh_cuts = data.loc[data["gammaness"].ge(float(self.gh_cuts))]
+
+        return after_gh_cuts.loc[after_gh_cuts["intensity"].ge(self.intensity_cuts)]

@@ -23,7 +23,7 @@ class LSTDL2EventTable(LSTDL2TableBase):
             self.dl2_params["trigger_time"].to_numpy(dtype=float),
         )
 
-    def __str__(self) -> str:
+    def __repr__(self) -> str:
         total_events = len(self.dl2_params)
         event_rates = total_events / self.t_eff
         events_above_100 = (self.dl2_params["intensity"] > 100).sum()

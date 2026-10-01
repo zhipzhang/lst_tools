@@ -67,8 +67,8 @@ class Background2DMaker:
         """Histogram events in reconstructed energy and offset radius."""
         self._validate_events(events)
         counts, _, _ = np.histogram2d(
-            events.energy.to_value(u.TeV),
-            events.radius.to_value(u.deg),
+            events.energy,
+            events.radius,
             bins=(self.energy_edges.to_value(u.TeV), self.theta_edges.to_value(u.deg)),
         )
         return counts.astype(np.int64)
@@ -102,9 +102,7 @@ class Background2DMaker:
         """Normalize counts by livetime, solid angle, and effective width."""
         counts = self.counts(events)
         normalization = (
-            events.livetime
-            * self._effective_energy_width[:, np.newaxis]
-            * self._annular_solid_angle[np.newaxis, :]
+            events.livetime * self._effective_energy_width[:, np.newaxis] * self._annular_solid_angle[np.newaxis, :]
         )
         return (counts / normalization).to(1 / (u.MeV * u.s * u.sr))
 

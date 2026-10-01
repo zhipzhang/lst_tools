@@ -104,8 +104,8 @@ def plot_radial_acceptance(
     if radial_edges[0] < 0 or radial_edges[-1] > 180:
         raise ValueError("theta_edges must be between 0 and 180 degrees")
 
-    energies = events.energy.to_value(u.TeV)
-    radii = events.radius.to_value(u.deg)
+    energies = events.energy
+    radii = events.radius
     if ax is None:
         figure, ax = plt.subplots(layout="constrained")
     else:

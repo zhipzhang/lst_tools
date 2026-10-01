@@ -1,30 +1,29 @@
 """Event-level ICRS sky offsets for background studies."""
 
 from collections.abc import Iterable
-from dataclasses import dataclass, field
 from typing import TYPE_CHECKING
 
 import astropy.units as u
 import numpy as np
-from astropy.coordinates import angular_separation
+from numpy.typing import NDArray
 
 if TYPE_CHECKING:
     from .camera import CameraImage
 
 
-def _as_quantity(values: Iterable[float], unit: u.Unit, name: str) -> u.Quantity:
-    """Return a copied, one-dimensional quantity in ``unit``."""
+def _as_array(values: Iterable[float] | u.Quantity, unit: u.Unit, name: str) -> NDArray[np.float64]:
+    """Return a one-dimensional float array expressed in ``unit``."""
     try:
         if isinstance(values, u.Quantity):
-            quantity = values.to(unit, copy=True)
+            array = values.to_value(unit)
         else:
-            quantity = np.asarray(values, dtype=float) * unit
+            array = np.array(values, dtype=float)
     except (TypeError, ValueError, u.UnitConversionError) as error:
         raise ValueError(f"{name} must contain numeric values in {unit}") from error
 
-    if quantity.ndim != 1:
+    if array.ndim != 1:
         raise ValueError(f"{name} must be one-dimensional")
-    return quantity
+    return array
 
 
 def _energy_bound(value: float | u.Quantity, name: str) -> float:
@@ -42,17 +41,6 @@ def _energy_bound(value: float | u.Quantity, name: str) -> float:
     return bound
 
 
-def _empty_angle() -> u.Quantity:
-    """Return an independent empty offset array."""
-    return np.empty(0, dtype=float) * u.deg
-
-
-def _empty_energy() -> u.Quantity:
-    """Return an independent empty energy array."""
-    return np.empty(0, dtype=float) * u.TeV
-
-
-@dataclass(eq=False)
 class SkyOffsetEvents:
     """Center-free event samples in telescope sky-offset coordinates.
 
@@ -70,52 +58,55 @@ class SkyOffsetEvents:
     energy
         Reconstructed event energies. Unitless values are interpreted as TeV.
     livetime
-        Effective observation time. Unitless values are interpreted as
-        seconds.
+        Effective observation time as a quantity, stored in seconds.
+
+    Attributes
+    ----------
+    x, y : NDArray[np.float64]
+        Offsets stored in degrees.
+    energy : NDArray[np.float64]
+        Energies stored in TeV.
+    livetime : u.Quantity
+        Effective observation time in seconds.
 
     """
 
-    x: Iterable[float] | u.Quantity = field(default_factory=_empty_angle)
-    y: Iterable[float] | u.Quantity = field(default_factory=_empty_angle)
-    energy: Iterable[float] | u.Quantity = field(default_factory=_empty_energy)
-    livetime: float | u.Quantity = field(default_factory=lambda: 0 * u.s)
+    def __init__(
+        self,
+        x: Iterable[float] | u.Quantity = (),
+        y: Iterable[float] | u.Quantity = (),
+        energy: Iterable[float] | u.Quantity = (),
+        livetime: u.Quantity = 0 * u.s,
+    ) -> None:
+        self.x: NDArray[np.float64] = _as_array(x, u.Unit("deg"), "x")
+        self.y: NDArray[np.float64] = _as_array(y, u.Unit("deg"), "y")
+        self.energy: NDArray[np.float64] = _as_array(energy, u.Unit("TeV"), "energy")
 
-    def __post_init__(self) -> None:
-        """Convert inputs to canonical units and validate the sample."""
-        self.x = _as_quantity(self.x, u.deg, "x")
-        self.y = _as_quantity(self.y, u.deg, "y")
-        self.energy = _as_quantity(self.energy, u.TeV, "energy")
+        try:
+            self.livetime: u.Quantity = livetime.to(u.s, copy=True)
+        except (AttributeError, u.UnitConversionError) as error:
+            raise ValueError("livetime must be a time quantity") from error
+
+        if self.livetime.ndim != 0 or not np.isfinite(self.livetime.value):
+            raise ValueError("livetime must be a finite scalar")
+        if self.livetime < 0 * u.s:
+            raise ValueError("livetime must be non-negative")
 
         if not (len(self.x) == len(self.y) == len(self.energy)):
             raise ValueError("x, y, and energy must contain the same number of events")
-        if not all(np.all(np.isfinite(values.value)) for values in (self.x, self.y, self.energy)):
+        if not all(np.all(np.isfinite(values)) for values in (self.x, self.y, self.energy)):
             raise ValueError("x, y, and energy must contain only finite values")
-
-        try:
-            if isinstance(self.livetime, u.Quantity):
-                converted_livetime = self.livetime.to(u.s, copy=True)
-            else:
-                converted_livetime = np.asarray(self.livetime, dtype=float) * u.s
-        except (TypeError, ValueError, u.UnitConversionError) as error:
-            raise ValueError("livetime must be a scalar time") from error
-
-        if converted_livetime.ndim != 0 or not np.isfinite(converted_livetime.value):
-            raise ValueError("livetime must be a finite scalar time")
-        if converted_livetime < 0 * u.s:
-            raise ValueError("livetime must be non-negative")
-        if self.energy.size > 0 and converted_livetime == 0 * u.s:
+        if self.energy.size > 0 and self.livetime == 0 * u.s:
             raise ValueError("livetime must be positive when events are present")
-
-        self.livetime = converted_livetime
 
     def __len__(self) -> int:
         """Return the number of stored events."""
         return len(self.energy)
 
     @property
-    def radius(self) -> u.Quantity:
-        """Exact angular separation of every event from its pointing."""
-        return angular_separation(0 * u.deg, 0 * u.deg, self.x, self.y).to(u.deg)
+    def radius(self) -> NDArray[np.float64]:
+        """Flat offset distance of every event from its pointing, in degrees."""
+        return np.hypot(self.x, self.y)
 
     def select_energy(
         self,
@@ -128,8 +119,7 @@ class SkyOffsetEvents:
         if low >= high:
             raise ValueError("energy_low must be less than energy_high")
 
-        energy = self.energy.to_value(u.TeV)
-        selected = (energy >= low) & (energy < high)
+        selected = (self.energy >= low) & (self.energy < high)
         return SkyOffsetEvents(
             x=self.x[selected],
             y=self.y[selected],
@@ -143,9 +133,9 @@ class SkyOffsetEvents:
             raise TypeError("other must be a SkyOffsetEvents object")
 
         return SkyOffsetEvents(
-            x=np.concatenate((self.x.to_value(u.deg), other.x.to_value(u.deg))) * u.deg,
-            y=np.concatenate((self.y.to_value(u.deg), other.y.to_value(u.deg))) * u.deg,
-            energy=np.concatenate((self.energy.to_value(u.TeV), other.energy.to_value(u.TeV))) * u.TeV,
+            x=np.concatenate((self.x, other.x)),
+            y=np.concatenate((self.y, other.y)),
+            energy=np.concatenate((self.energy, other.energy)),
             livetime=self.livetime + other.livetime,
         )
 
