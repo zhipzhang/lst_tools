@@ -22,8 +22,14 @@ class LSTDL2TableBase:
     def read_dl2_events(file_name: str) -> pd.DataFrame:
         """
         Read DL2 events from a HDF5 file.
+
+        Adds ``gh_score`` as an alias of ``gammaness`` (the name lstchain
+        uses for DL3/IRF work); both columns are kept.
         """
-        return cast(pd.DataFrame, pd.read_hdf(file_name, key=dl2_params_lstcam_key))
+        events = cast(pd.DataFrame, pd.read_hdf(file_name, key=dl2_params_lstcam_key))
+        if "gammaness" in events.columns and "gh_score" not in events.columns:
+            events["gh_score"] = events["gammaness"]
+        return events
 
     @property
     def data(self):
