@@ -8,7 +8,8 @@
       "wl": [0.01, 1],
       "leakage_intensity_width_2": [0, 1],
       "event_type": [32, 32]
-    }
+    },
+    "finite_params": ["intensity", "length", "width"]
   },
   "DL3Cuts": {
     "min_event_p_en_bin": 100,
