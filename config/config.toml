@@ -6,12 +6,6 @@ ra = 83.632
 dec = 22.0145
 name = "Crab Nebula"
 
-# This will create a directory which will contain the link to data files
-[initialization]
-dl1 = true
-dl2 = true
-data_check = true
-
 # Runs are grouped into left-closed bins, with the final upper edge included.
 [zenith_binning]
 edges_deg = [0.0, 20.0, 30.0, 40.0, 50.0, 60.0, 70.0]
@@ -27,21 +21,27 @@ first_date = 0
 last_date = 20999999
 max_pointing_dec_std = 0.01 # pointing stability
 
+# Stage 4: build our own DL2 from the linked DL1 with these RF models.
+# The directory path must carry the MC group (nsb_tuning_<x>/dec_<NNNN>):
+# the IRF and DL3 stages parse it back from the DL2 provenance.
+[dl2]
+rf_directory = "/fefs/aswg/data/models/AllSky/.../nsb_tuning_0.24/dec_347"
+overwrite = false
+
+# Event selection shared by IRF generation and DL3 reduction. The DL3
+# reduction takes its quality filters from here and the gammaness cut from
+# the IRF itself, so data and IRFs can never disagree. Give exactly one of
+# gh_cut (fixed threshold) or gh_efficiency (energy-dependent quantile cuts).
+[irf]
+intensity_cut = 80
+leakage_cut = 1.0
+gh_efficiency = 0.7
+
+# Reduce our DL2 to DL3 observations, interpolating the IRFs of each run's
+# MC group (nsb_<nsb>/dec_<line> under irf_directory) to the run's pointing.
 [dl3]
 enabled = true
-cut_configs = ["gheff0.7_thetacont0.7", "gheff0.9_thetacont0.7"]
-
-[[dl3.products]]
-name = "point"
-analysis_type = "point"
-background_type = "ring-wobble"
-
-[[dl3.products]]
-name = "full_ring"
-analysis_type = "full-enclosure"
-background_type = "ring-wobble"
-
-[[dl3.products]]
-name = "full_diffuse"
-analysis_type = "full-enclosure"
-background_type = "diffuse"
+# irf_directory = "/path/to/irfs"   # default: <output>/irfs
+interp_method = "linear"
+use_nearest_irf_node = false
+overwrite = false

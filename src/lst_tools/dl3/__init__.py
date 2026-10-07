@@ -11,6 +11,7 @@ from .products import (
 
 __all__ = [
     "DL3Product",
+    "DL3Reducer",
     "DL3Request",
     "Dl3DataStore",
     "discover_lst_dl3_products",
@@ -21,10 +22,15 @@ __all__ = [
 
 
 def __getattr__(name: str):
-    """Load the heavier Gammapy data-store support only when requested."""
+    """Load the heavier Gammapy/lstchain-tool support only when requested."""
     if name == "Dl3DataStore":
         from .data_store import Dl3DataStore
 
         globals()[name] = Dl3DataStore
         return Dl3DataStore
+    if name == "DL3Reducer":
+        from .reduction import DL3Reducer
+
+        globals()[name] = DL3Reducer
+        return DL3Reducer
     raise AttributeError(f"module {__name__!r} has no attribute {name!r}")

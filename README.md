@@ -20,51 +20,54 @@ pytest        # run tests
 ruff check .  # lint
 ```
 
-## Initialize a zenith-binned analysis
+## Run the analysis pipeline
 
-Edit `config/config.toml` to set the source, quality cuts, and zenith-angle
-edges. Then run:
+Edit `config/config.toml` to set the source, quality cuts, zenith-angle
+edges, and the RF models. Then run:
 
 ```bash
 init-lstana config/config.toml --output /path/to/analysis
 ```
 
-The command filters runs once and creates idempotent links grouped by data
-level and zenith-angle bin:
+The command runs a six-stage pipeline; everything from DL2 onward is
+produced by the pipeline itself:
+
+1. **Select runs** — nightly DataCheck statistics filtered by the
+   `[data_filter]` cuts, grouped into the `[zenith_binning]` bins.
+2. **Data check** — the selected tables and cut diagnostics in
+   `data_check/`.
+3. **Link DL1** — idempotent symlinks of the selected runs into
+   `dl1/<zd_bin>/`.
+4. **Build DL2** (`[dl2]` section) — our own reconstruction of the linked
+   DL1 with the configured `rf_directory` RF models into `dl2/<zd_bin>/`.
+5. **Build IRFs** (`[irf]` section) — one IRF per MC node of each run's MC
+   group in `irfs/nsb_<nsb>/dec_<line>/`, located from the DL2 provenance.
+6. **Reduce to DL3** (`[dl3] enabled = true`) — one DL3 FITS observation
+   per run in `dl3/<zd_bin>/`.
 
 ```text
 analysis/
 ├── data_check/
-├── dl1/
-│   ├── zd_0_20/
-│   ├── zd_20_30/
-│   └── ...
-└── dl2/
-    ├── zd_0_20/
-    ├── zd_20_30/
-    └── ...
+├── dl1/<zd_bin>/          # linked inputs
+├── dl2/<zd_bin>/          # built by stage 4
+├── irfs/nsb_<nsb>/dec_<line>/   # built by stage 5
+└── dl3/<zd_bin>/          # written by stage 6
 ```
 
-Bins include their lower edge and exclude their upper edge; the last bin also
-includes its upper edge. Running the command again keeps correct links and
-does not replace conflicting files. The `data_check/` directory contains the
-selected DataCheck tables and advanced-cut diagnostic plots.
+Bins include their lower edge and exclude their upper edge; the last bin
+also includes its upper edge. Reruns are incremental: existing links are
+kept, existing DL2/IRF/DL3 files are reused (an IRF is regenerated when the
+`[irf]` config changed), and conflicting files are never replaced. Each
+stage has an `overwrite` option to force rebuilding.
 
-DL3 linking is controlled explicitly by `[dl3]` in the TOML configuration. The
-configured products are crossed with `cut_configs`, and only exact matches are
-linked. Other discovered DL3 files are ignored. Each combination is kept
-separate to avoid mixing analysis products or colliding filenames. When the
-same product exists under multiple processing-version directories immediately
-before `std`, the newest semantic version is selected automatically:
-
-```text
-dl3/
-├── point/
-│   ├── gheff0.7_thetacont0.7/zd_0_20/
-│   └── gheff0.9_thetacont0.7/zd_0_20/
-├── full_ring/
-└── full_diffuse/
-```
+The DL3 reduction uses lstchain's `lstchain_create_dl3_file` machinery,
+interpolating the IRFs of each run's MC group to the run's pointing. The
+event selection comes from the `[irf]` section: the quality filters
+(`intensity_cut`, `leakage_cut`) are passed to the reduction, and the
+gammaness cut (`gh_cut` or `gh_efficiency`) is carried inside the IRFs
+themselves, so data and IRFs always agree. For DL3, IRFs are looked up
+under `<output>/irfs` unless `[dl3] irf_directory` overrides it — useful to
+reduce against IRFs generated outside this workspace (stage 5 skipped).
 
 ## DataCheck statistics
 

@@ -3,42 +3,87 @@ import pandas as pd
 import pytest
 
 from lst_tools.datacheck import assign_zenith_bins
-from lst_tools.dl3 import parse_dl3_path
 from lst_tools.scripts.init_lstana import (
     create_data_links,
-    create_dl3_links,
+    load_irf_config,
     prepare_working_directory,
+    validate_config,
 )
 
 
-def test_prepare_working_directory_creates_configured_layout(tmp_path):
-    initialization = {"dl1": True, "dl2": True, "data_check": True}
-    dl3_config = {
-        "enabled": True,
-        "cut_configs": ["gheff0.7_thetacont0.7"],
-        "products": [
-            {
-                "name": "point",
-                "analysis_type": "point",
-                "background_type": "ring-wobble",
-            }
-        ],
+def test_prepare_working_directory_creates_the_stage_layout(tmp_path):
+    config = {
+        "dl2": {"rf_directory": "/models/nsb_tuning_0.24/dec_347"},
+        "dl3": {"enabled": True},
     }
 
-    levels = prepare_working_directory(
-        tmp_path,
-        (0.0, 20.0, 40.0),
-        initialization,
-        dl3_config,
-    )
+    prepare_working_directory(tmp_path, (0.0, 20.0, 40.0), config)
 
-    assert levels == ("dl1", "dl2")
     assert (tmp_path / "data_check").is_dir()
-    for level in levels:
+    for level in ("dl1", "dl2", "dl3"):
         assert (tmp_path / level / "zd_0_20").is_dir()
         assert (tmp_path / level / "zd_20_40").is_dir()
-    assert (tmp_path / "dl3" / "point" / "gheff0.7_thetacont0.7" / "zd_0_20").is_dir()
-    assert (tmp_path / "dl3" / "point" / "gheff0.7_thetacont0.7" / "zd_20_40").is_dir()
+
+
+def test_prepare_working_directory_only_creates_dirs_of_active_stages(tmp_path):
+    prepare_working_directory(tmp_path, (0.0, 20.0), {})
+
+    assert (tmp_path / "data_check").is_dir()
+    assert (tmp_path / "dl1" / "zd_0_20").is_dir()
+    assert not (tmp_path / "dl2").exists()
+    assert not (tmp_path / "dl3").exists()
+
+
+def test_validate_config_requires_rf_directory_with_mc_group_naming():
+    with pytest.raises(ValueError, match="rf_directory"):
+        validate_config({"dl2": {}})
+    with pytest.raises(ValueError, match="nsb_tuning_<x>/dec_<NNNN>"):
+        validate_config({"dl2": {"rf_directory": "/models/somewhere"}})
+    validate_config({"dl2": {"rf_directory": "/models/nsb_tuning_0.24/dec_347"}})
+
+
+def test_validate_config_dl3_requires_the_irf_section():
+    with pytest.raises(ValueError, match=r"\[irf\] section"):
+        validate_config({"dl3": {"enabled": True}})
+
+    validate_config(
+        {
+            "dl3": {"enabled": True},
+            "irf": {"intensity_cut": 80, "leakage_cut": 1.0, "gh_cut": 0.7},
+        }
+    )
+
+
+def test_load_irf_config_builds_the_shared_event_filter():
+    config = {
+        "irf": {
+            "intensity_cut": 80,
+            "leakage_cut": 1.0,
+            "gh_efficiency": 0.7,
+        }
+    }
+
+    irf_config = load_irf_config(config)
+
+    event_selector = irf_config.event_filter.event_selector
+    assert event_selector.filters["intensity"] == [80.0, np.inf]
+    assert event_selector.filters["leakage_intensity_width_2"] == [0, 1.0]
+    assert irf_config.event_filter.energy_dependent_gh is True
+    assert irf_config.event_filter.dl3_cuts.gh_efficiency == 0.7
+
+
+def test_load_irf_config_requires_the_irf_section():
+    with pytest.raises(ValueError, match=r"\[irf\] section"):
+        load_irf_config({})
+
+
+def test_load_irf_config_requires_exactly_one_gammaness_mode():
+    section = {"intensity_cut": 80, "leakage_cut": 1.0}
+
+    with pytest.raises(ValueError, match="exactly one of gh_cut and gh_efficiency"):
+        load_irf_config({"irf": section})
+    with pytest.raises(ValueError, match="exactly one of gh_cut and gh_efficiency"):
+        load_irf_config({"irf": {**section, "gh_cut": 0.7, "gh_efficiency": 0.7}})
 
 
 def test_create_data_links_groups_runs_and_is_idempotent(tmp_path):
@@ -103,53 +148,3 @@ def test_create_data_links_rejects_unsupported_level(tmp_path):
 
     with pytest.raises(ValueError, match="Unsupported data levels"):
         create_data_links(stats, tmp_path, ("dl3",))
-
-
-def test_create_dl3_links_uses_only_configured_products(tmp_path):
-    stats = assign_zenith_bins(
-        pd.DataFrame({"run_number": [1], "date": [20240101], "mean_cos_zd": [1.0]}),
-        [0, 20],
-    )
-    dl3_config = {
-        "cut_configs": ["gheff0.7_thetacont0.7", "gheff0.9_thetacont0.7"],
-        "products": [
-            {
-                "name": "point",
-                "analysis_type": "point",
-                "background_type": "ring-wobble",
-            }
-        ],
-    }
-    available = []
-    for cut_config in [
-        "gheff0.7_thetacont0.7",
-        "gheff0.9_thetacont0.7",
-        "gheff0.5_thetacont0.7",
-    ]:
-        source = tmp_path / "source" / "point" / "ring-wobble" / cut_config / "irf_interp" / "run.fits"
-        source.parent.mkdir(parents=True, exist_ok=True)
-        source.touch()
-        available.append(parse_dl3_path(source, 20240101, 1))
-
-    def find_products(date, run_number):
-        assert (date, run_number) == (20240101, 1)
-        return available
-
-    first = create_dl3_links(stats, tmp_path / "output", dl3_config, product_finder=find_products)
-    second = create_dl3_links(stats, tmp_path / "output", dl3_config, product_finder=find_products)
-
-    assert sum(value for key, value in first.items() if key.endswith(":created")) == 2
-    assert sum(value for key, value in second.items() if key.endswith(":existing")) == 2
-    for cut_config in dl3_config["cut_configs"]:
-        destination = tmp_path / "output" / "dl3" / "point" / cut_config / "zd_0_20" / "run.fits"
-        assert destination.is_symlink()
-    unconfigured = (
-        tmp_path
-        / "output"
-        / "dl3"
-        / "point"
-        / "gheff0.5_thetacont0.7"
-        / "zd_0_20"
-        / "run.fits"
-    )
-    assert not unconfigured.exists()
