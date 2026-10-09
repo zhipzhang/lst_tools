@@ -127,14 +127,14 @@ def test_adapter_validates_effective_livetime(run_dl2):
 def run_dl2_altaz():
     """DL2-like data with 3 events, each with its own pointing and time."""
     event_time = Time(1_700_000_000 + np.array([0.0, 60.0, 120.0]), format="unix")
-    pointing_alt = np.deg2rad([70.0, 65.0, 60.0])
-    pointing_az = np.deg2rad([10.0, 180.0, 350.0])
+    alt_tel = np.deg2rad([70.0, 65.0, 60.0])
+    az_tel = np.deg2rad([10.0, 180.0, 350.0])
     data = pd.DataFrame(
         {
-            "reco_alt": pointing_alt + np.deg2rad([0.1, -0.2, 0.3]),
-            "reco_az": pointing_az + np.deg2rad([0.2, 0.1, -0.15]),
-            "pointing_alt": pointing_alt,
-            "pointing_az": pointing_az,
+            "reco_alt": alt_tel + np.deg2rad([0.1, -0.2, 0.3]),
+            "reco_az": az_tel + np.deg2rad([0.2, 0.1, -0.15]),
+            "alt_tel": alt_tel,
+            "az_tel": az_tel,
             "reco_energy": [0.2, 0.8, 2.0],
             "trigger_time": event_time.unix,
         }
@@ -151,7 +151,7 @@ def test_adapter_altaz_frame_matches_scalar_per_event_reference(run_dl2_altaz):
     expected_x, expected_y = [], []
     for row, time in zip(dl2.data.itertuples(), event_time):
         altaz_frame = AltAz(obstime=time, location=LST_LOCATION)
-        origin = SkyCoord(alt=row.pointing_alt * u.rad, az=row.pointing_az * u.rad, frame=altaz_frame)
+        origin = SkyCoord(alt=row.alt_tel * u.rad, az=row.az_tel * u.rad, frame=altaz_frame)
         direction = SkyCoord(alt=row.reco_alt * u.rad, az=row.reco_az * u.rad, frame=altaz_frame)
         fov = direction.transform_to(FoVAltAzFrame(origin=origin, location=LST_LOCATION))
         expected_x.append(fov.fov_lon.to_value(u.deg))
@@ -165,8 +165,8 @@ def test_adapter_altaz_frame_matches_scalar_per_event_reference(run_dl2_altaz):
 
 def test_adapter_altaz_frame_centers_each_event_on_its_own_pointing(run_dl2_altaz):
     dl2, _ = run_dl2_altaz
-    dl2.data["reco_alt"] = dl2.data["pointing_alt"]
-    dl2.data["reco_az"] = dl2.data["pointing_az"]
+    dl2.data["reco_alt"] = dl2.data["alt_tel"]
+    dl2.data["reco_az"] = dl2.data["az_tel"]
 
     events = sky_offset_events_from_lstdl2(dl2, frame="altaz")
 

@@ -49,8 +49,8 @@ def sky_offset_events_from_lstdl2(
         computed in a FoV-ICRS frame centered on the run pointing given by
         the ``pointing_ra``/``pointing_dec`` attributes. With ``"altaz"``,
         offsets are computed in a FoV-AltAz frame centered on the per-event
-        pointing given by the ``pointing_alt``/``pointing_az`` columns (in
-        radians) at each event's trigger time.
+        pointing given by the ``alt_tel``/``az_tel`` columns (in radians) at
+        each event's trigger time.
     """
     try:
         data = dl2.data
@@ -79,8 +79,8 @@ def sky_offset_events_from_lstdl2(
         offsets = reconstructed.transform_to(FoVICRSFrame(origin=pointing))
     elif frame == "altaz":
         altaz_frame = Pointing(
-            pointing_alt=selected["pointing_alt"],
-            pointing_az=selected["pointing_az"],
+            pointing_alt=selected["alt_tel"],
+            pointing_az=selected["az_tel"],
             trigger_time=event_time,
         ).altaz
         events = SkyCoord(
