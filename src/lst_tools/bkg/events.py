@@ -5,6 +5,8 @@ from typing import TYPE_CHECKING
 
 import astropy.units as u
 import numpy as np
+from gammapy.maps import RegionGeom
+from gammapy.utils.coordinates.fov import FoVICRSFrame
 from numpy.typing import NDArray
 
 if TYPE_CHECKING:
@@ -77,6 +79,8 @@ class SkyOffsetEvents:
         y: Iterable[float] | u.Quantity = (),
         energy: Iterable[float] | u.Quantity = (),
         livetime: u.Quantity = 0 * u.s,
+        exclusion_regions: RegionGeom | None = None,
+        frame: FoVICRSFrame | None = None,
     ) -> None:
         self.x: NDArray[np.float64] = _as_array(x, u.Unit("deg"), "x")
         self.y: NDArray[np.float64] = _as_array(y, u.Unit("deg"), "y")
@@ -98,6 +102,11 @@ class SkyOffsetEvents:
             raise ValueError("x, y, and energy must contain only finite values")
         if self.energy.size > 0 and self.livetime == 0 * u.s:
             raise ValueError("livetime must be positive when events are present")
+        if exclusion_regions is not None:
+            self.exclusion_regions = exclusion_regions
+            if frame is None:
+                raise ValueError("frame must be provided when exclusion_regions are given")
+            self.frame = frame
 
     def __len__(self) -> int:
         """Return the number of stored events."""
@@ -126,22 +135,6 @@ class SkyOffsetEvents:
             energy=self.energy[selected],
             livetime=self.livetime,
         )
-
-    def add(self, other: "SkyOffsetEvents") -> "SkyOffsetEvents":
-        """Return a new sample with concatenated events and summed livetime."""
-        if not isinstance(other, SkyOffsetEvents):
-            raise TypeError("other must be a SkyOffsetEvents object")
-
-        return SkyOffsetEvents(
-            x=np.concatenate((self.x, other.x)),
-            y=np.concatenate((self.y, other.y)),
-            energy=np.concatenate((self.energy, other.energy)),
-            livetime=self.livetime + other.livetime,
-        )
-
-    def __add__(self, other: "SkyOffsetEvents") -> "SkyOffsetEvents":
-        """Return ``self.add(other)``."""
-        return self.add(other)
 
     def to_image(
         self,

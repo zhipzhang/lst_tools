@@ -6,7 +6,10 @@ from typing import Literal
 import astropy.units as u
 import pandas as pd
 from astropy.coordinates import EarthLocation, SkyCoord
+from gammapy.data import EventList
+from gammapy.maps import RegionGeom
 from gammapy.utils.coordinates import FoVAltAzFrame, FoVICRSFrame
+from regions import Region
 
 from lst_tools.dl2 import LSTDL2EventTable
 from lst_tools.pointing import Pointing
@@ -14,6 +17,39 @@ from lst_tools.pointing import Pointing
 from ..location import LST_LOCATION
 from ..utils import altaz_to_icrs
 from .events import SkyOffsetEvents
+
+
+def sky_offset_events_from_dl3(
+    events: EventList,
+    exclusion_region: RegionGeom | list[Region] | None,
+    location: EarthLocation = LST_LOCATION,
+    frame: Literal["icrs", "altaz"] = "icrs",
+) -> SkyOffsetEvents:
+    """Convert DL3 events into center-free sky-offset events."""
+
+    if isinstance(exclusion_region, list):
+        exclusion_region = RegionGeom.from_regions(exclusion_region)
+    if exclusion_region is not None:
+        mask = exclusion_region.contains(events.radec)
+        events_filtered = events.select_row_subset(~mask)
+    else:
+        events_filtered = events
+    livetime = events.observation_live_time_duration
+    energy = events_filtered.energy
+    if frame == "icrs":
+        pointing = events.pointing_radec
+        offsets = events_filtered.radec.transform_to(FoVICRSFrame(origin=pointing))
+    elif frame == "altaz":
+        raise NotImplementedError("altaz frame not yet supported")
+
+    return SkyOffsetEvents(
+        x=offsets.fov_lon,
+        y=offsets.fov_lat,
+        energy=energy,
+        livetime=livetime,
+        exclusion_regions=exclusion_region,
+        frame=FoVICRSFrame(origin=pointing) if frame == "icrs" else None,
+    )
 
 
 def sky_offset_events_from_lstdl2(
