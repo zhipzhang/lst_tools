@@ -71,6 +71,18 @@ def test_parses_processing_metadata(patched_dl2_io):
 
 
 @pytest.mark.parametrize(
+    ("intensity_cut", "expected"),
+    [(21.0, 30.0), (50.0, 50.0), (50.1, 60.0)],
+)
+def test_intensity_cuts_rounds_up_to_next_ten(patched_dl2_io, monkeypatch, intensity_cut, expected):
+    monkeypatch.setattr(dl2table_module, "get_intensity_cut", lambda data: intensity_cut)
+
+    table = LSTDL2EventTable("/data/dl2_LST-1.Run00042.h5")
+
+    assert table.intensity_cuts == pytest.approx(expected)
+
+
+@pytest.mark.parametrize(
     ("directory_name", "expected"),
     [("dec_931", 931), ("dec_2276", 2276), ("dec_min_413", -413), ("dec_min_1802", -1802)],
 )

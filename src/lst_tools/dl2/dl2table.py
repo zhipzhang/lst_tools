@@ -1,3 +1,4 @@
+import math
 import re
 from functools import cached_property
 from os import PathLike
@@ -5,6 +6,8 @@ from pathlib import Path
 
 import astropy.units as u
 from lstchain.reco.utils import get_effective_time, get_intensity_cut
+
+from lst_tools.finder.helper import parse_run_id
 
 from ..pointing import Pointing
 from .dl2table_base import LSTDL2TableBase
@@ -14,7 +17,7 @@ class LSTDL2EventTable(LSTDL2TableBase):
     """DL2 events and run metadata loaded from one lstchain file."""
 
     def __init__(self, file_name: str | PathLike[str]):
-        self.run_id = self._parse_run_id(Path(file_name).name)
+        self.run_id = parse_run_id(str(file_name))
         super().__init__(file_name)
         self.t_eff, self.t_elapsed = get_effective_time(self.dl2_params)
         self.pointing = Pointing(
@@ -34,13 +37,6 @@ class LSTDL2EventTable(LSTDL2TableBase):
             f"events_above_100={events_above_100}, event_rates={event_rates:.2f}, "
             f"rate_above_100={rate_above_100:.2f})"
         )
-
-    @staticmethod
-    def _parse_run_id(file_name: str) -> int:
-        match = re.search(r"Run(?P<run_id>\d+)", file_name)
-        if match is None:
-            raise ValueError(f"could not find a run number in DL2 filename: {file_name}")
-        return int(match.group("run_id"))
 
     @cached_property
     def pointing_ra(self) -> u.Quantity:
@@ -64,4 +60,4 @@ class LSTDL2EventTable(LSTDL2TableBase):
     @property
     def intensity_cuts(self) -> float:
         intensity_cuts = get_intensity_cut(self.data)
-        return (intensity_cuts // 10 + 1) * 10
+        return math.ceil(intensity_cuts / 10) * 10
