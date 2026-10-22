@@ -61,6 +61,31 @@ def test_fill_requires_sky_offset_events(camera):
         camera.fill(object())
 
 
+def test_to_radial_rebins_bin_centers_into_offset_and_energy(camera, sample_events):
+    camera.fill(sample_events)
+
+    radial = camera.to_radial([0, 0.8, 1.2])
+
+    assert radial.axes.name == ("energy", "theta")
+    np.testing.assert_allclose(radial.axes["energy"].edges, [0.1, 1, 10])
+    np.testing.assert_allclose(radial.axes["theta"].edges, [0, 0.8, 1.2])
+    # both filled x-y bins are centered at (±0.5, ±0.5), radius ≈ 0.71 deg
+    np.testing.assert_array_equal(radial.values(), [[1, 0], [1, 0]])
+
+
+def test_to_radial_preserves_total_counts(camera, sample_events):
+    camera.fill(sample_events)
+
+    radial = camera.to_radial([0, 2])
+
+    assert radial.values().sum() == camera.histogram.values().sum()
+
+
+def test_to_radial_rejects_invalid_edges(camera):
+    with pytest.raises(ValueError, match="theta_edges"):
+        camera.to_radial([1, 0])
+
+
 @pytest.mark.parametrize(
     ("edge_name", "edges"),
     [

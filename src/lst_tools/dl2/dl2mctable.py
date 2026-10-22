@@ -1,6 +1,5 @@
 import re
 from os import PathLike
-from typing import TypeAlias
 
 import astropy.units as u
 import numpy as np
@@ -10,8 +9,6 @@ from pyirf.simulations import SimulatedEventsInfo
 from pyirf.spectral import CRAB_MAGIC_JHEAP2015, PowerLaw, calculate_event_weights
 
 from .dl2table_base import LSTDL2TableBase
-
-Angle: TypeAlias = u.Quantity["angle"]
 
 
 class LSTDL2MCTable(LSTDL2TableBase):
@@ -37,14 +34,14 @@ class LSTDL2MCTable(LSTDL2TableBase):
         return weights
 
     @property
-    def pointing_ze(self) -> Angle:
+    def pointing_ze(self) -> u.Quantity:
         match = re.search(r"node_theta_([\d.]+)", self.file_name)
         if match is None:
             raise ValueError(f"Could not parse pointing zenith from MC path: {self.file_name}")
         return float(match.group(1)) * u.Unit("deg")
 
     @property
-    def pointing_az(self) -> Angle:
+    def pointing_az(self) -> u.Quantity:
         match = re.search(r"node_theta_[\d.]+_az_([\d.]+)", self.file_name)
         if match is None:
             raise ValueError(f"Could not parse pointing azimuth from MC path: {self.file_name}")

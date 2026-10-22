@@ -1,5 +1,5 @@
 import glob
-from typing import Iterable
+from collections.abc import Iterable
 
 
 def glob_files(path: str | Iterable[str], pattern: str) -> list[str]:
@@ -164,27 +164,32 @@ def plot_histogram(
     return fig, ax
 
 
-POSSIBLE_PATH = ("/fefs/onsite/data/lst-pipe/LSTN-01", "/fefs/aswg/data/real")
-
-
 def find_lst_data_path(date: int, run_number: int, level="dl1"):
+    """
+    Deprecated: use ``lst_tools.finder.find_la_palma_files`` instead.
+
+    Kept for backward compatibility: returns a single path for DL1/DL2
+    (``None`` if not found) and a list of paths for DL3.
+    """
     import warnings
+
+    from .finder.search import LA_PALMA_DATA_PATHS, _glob_run_files
+
+    warnings.warn(
+        "find_lst_data_path is deprecated, use lst_tools.finder.find_la_palma_files instead",
+        DeprecationWarning,
+        stacklevel=2,
+    )
 
     level = level.upper()
     if level not in ["DL1", "DL2", "DL3"]:
         raise ValueError(f"Invalid level: {level}. Must be 'DL1', 'DL2', or 'DL3'.")
 
-    ext = "fits" if level == "DL3" else "h5"
-    file_name = f"{level.lower()}_LST-1.Run{run_number:05d}.{ext}"
-
-    matched_files = []
-    for path in POSSIBLE_PATH:
-        prefix_path = f"{path}/{level}/{date}"
-        matched_files.extend(glob.glob(f"{prefix_path}/**/{file_name}", recursive=True))
+    matched_files = _glob_run_files(date, run_number, level)
 
     if len(matched_files) == 0:
         warnings.warn(
-            f"No file found for {file_name} under any of {POSSIBLE_PATH}",
+            f"No file found for {level}_LST-1.Run{run_number:05d} under any of {LA_PALMA_DATA_PATHS}",
             stacklevel=2,
         )
         return None if level != "DL3" else []
@@ -195,7 +200,7 @@ def find_lst_data_path(date: int, run_number: int, level="dl1"):
     # DL1 / DL2: exactly one file expected
     if len(matched_files) > 1:
         warnings.warn(
-            f"Multiple files found for {file_name}: {matched_files}. Returning the first one.",
+            f"Multiple files found for {matched_files[0]}: {matched_files}. Returning the first one.",
             stacklevel=2,
         )
     return matched_files[0]
@@ -211,6 +216,8 @@ def find_lst_subrun_files(date: int, run_number: int, level="dl1") -> list[str]:
     """
     import warnings
 
+    from .finder.search import LA_PALMA_DATA_PATHS
+
     level = level.upper()
     if level not in ["DL1", "DL2"]:
         raise ValueError(f"Invalid level: {level}. Must be 'DL1' or 'DL2'.")
@@ -219,13 +226,13 @@ def find_lst_subrun_files(date: int, run_number: int, level="dl1") -> list[str]:
     pattern = f"{level.lower()}_LST-1.Run{run_number:05d}.????.h5"
 
     matched_files = []
-    for path in POSSIBLE_PATH:
+    for path in LA_PALMA_DATA_PATHS:
         prefix_path = f"{path}/{level}/{date}"
         matched_files.extend(glob.glob(f"{prefix_path}/**/{pattern}", recursive=True))
 
     if len(matched_files) == 0:
         warnings.warn(
-            f"No subrun files found for Run{run_number:05d} under any of {POSSIBLE_PATH}",
+            f"No subrun files found for Run{run_number:05d} under any of {LA_PALMA_DATA_PATHS}",
             stacklevel=2,
         )
 

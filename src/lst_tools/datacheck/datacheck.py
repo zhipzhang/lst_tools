@@ -70,7 +70,7 @@ class DataCheckTables:
             A dataclass instance holding the concatenated DataFrames.
         """
         table_names = list(cls.__annotations__.keys())
-        table_data = {name: [] for name in table_names}
+        table_data: dict[str, list[pd.HDFStore]] = {name: [] for name in table_names}
 
         for file in files:
             with pd.HDFStore(file, mode="r") as store:

@@ -15,7 +15,8 @@ from lst_tools.catalog import (
 )
 from lst_tools.datacheck import DataCheckTables, DataFilter
 from lst_tools.helper import find_lst_data_path
-from lst_tools.scripts.init_lstana import create_safe_link, load_config, load_datacheck_tables
+from lst_tools.pipeline import create_safe_link
+from lst_tools.scripts.init_lstana import load_config, load_datacheck_tables
 
 
 def select_offruns(
@@ -164,7 +165,7 @@ def main() -> None:
         **cuts,
     )
 
-    tables = load_datacheck_tables()
+    tables = load_datacheck_tables(config)
     selected_runs = select_offruns(
         tables.statistics,
         data_filter,

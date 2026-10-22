@@ -3,7 +3,6 @@
 import astropy.units as u
 import numpy as np
 import pytest
-from astropy.coordinates import SkyCoord
 
 import lst_tools.bkg.events as events_module
 from lst_tools import bkg
@@ -29,22 +28,19 @@ def test_events_are_center_free_and_use_canonical_units():
     )
 
     assert not hasattr(events, "center")
-    assert events.x.unit == u.deg
-    assert events.y.unit == u.deg
-    assert events.energy.unit == u.TeV
     assert events.livetime.unit == u.s
-    np.testing.assert_allclose(events.x.value, [-0.5, 0.25])
-    np.testing.assert_allclose(events.y.value, [0, 0.5])
-    np.testing.assert_allclose(events.energy.value, [0.2, 1.0])
+    np.testing.assert_allclose(events.x, [-0.5, 0.25])
+    np.testing.assert_allclose(events.y, [0, 0.5])
+    np.testing.assert_allclose(events.energy, [0.2, 1.0])
     assert events.livetime.value == pytest.approx(120)
 
 
-def test_unitless_values_use_degrees_tev_and_seconds():
-    events = make_events(livetime=10)
+def test_unitless_arrays_use_degrees_and_tev():
+    events = make_events(livetime=10 * u.s)
 
-    assert events.x.unit == u.deg
-    assert events.y.unit == u.deg
-    assert events.energy.unit == u.TeV
+    np.testing.assert_allclose(events.x, [-0.5, 0.25, 1.0])
+    np.testing.assert_allclose(events.y, [0.0, 0.5, -0.25])
+    np.testing.assert_allclose(events.energy, [0.2, 1.0, 4.0])
     assert events.livetime == 10 * u.s
 
 
@@ -52,9 +48,9 @@ def test_empty_initializer_is_a_zero_exposure_sample():
     events = SkyOffsetEvents()
 
     assert len(events) == 0
-    assert events.x.unit == u.deg
-    assert events.y.unit == u.deg
-    assert events.energy.unit == u.TeV
+    assert events.x.size == 0
+    assert events.y.size == 0
+    assert events.energy.size == 0
     assert events.livetime == 0 * u.s
 
 
@@ -77,11 +73,11 @@ def test_empty_initializer_is_an_additive_identity():
 
 def test_input_arrays_are_copied():
     x = np.array([0.1, 0.2])
-    events = SkyOffsetEvents(x=x, y=[0, 0], energy=[1, 2], livetime=3)
+    events = SkyOffsetEvents(x=x, y=[0, 0], energy=[1, 2], livetime=3 * u.s)
 
     x[0] = 99
 
-    assert events.x[0] == 0.1 * u.deg
+    assert events.x[0] == 0.1
 
 
 @pytest.mark.parametrize(
@@ -93,10 +89,10 @@ def test_input_arrays_are_copied():
 )
 def test_event_columns_must_be_one_dimensional_and_equal_length(x, y, energy):
     with pytest.raises(ValueError, match="same number|one-dimensional"):
-        SkyOffsetEvents(x=x, y=y, energy=energy, livetime=1)
+        SkyOffsetEvents(x=x, y=y, energy=energy, livetime=1 * u.s)
 
 
-@pytest.mark.parametrize("livetime", [-1, np.inf, [1, 2], 1 * u.m])
+@pytest.mark.parametrize("livetime", [-1 * u.s, np.inf * u.s, [1, 2] * u.s, 1 * u.m])
 def test_livetime_must_be_a_finite_non_negative_scalar_time(livetime):
     with pytest.raises(ValueError, match="livetime"):
         SkyOffsetEvents(x=[], y=[], energy=[], livetime=livetime)
@@ -114,12 +110,10 @@ def test_non_empty_sample_requires_positive_livetime():
         SkyOffsetEvents(x=[0], y=[0], energy=[1], livetime=0 * u.s)
 
 
-def test_radius_is_exact_spherical_separation():
-    events = SkyOffsetEvents(x=[1], y=[1], energy=[1], livetime=1)
-    offset_event = SkyCoord(ra=1 * u.deg, dec=1 * u.deg, frame="icrs")
-    origin = SkyCoord(ra=0 * u.deg, dec=0 * u.deg, frame="icrs")
+def test_radius_is_the_flat_offset_distance():
+    events = SkyOffsetEvents(x=[1, 3], y=[1, 4], energy=[1, 1], livetime=1 * u.s)
 
-    assert events.radius[0] == offset_event.separation(origin)
+    np.testing.assert_allclose(events.radius, [np.sqrt(2), 5])
 
 
 def test_energy_selection_is_half_open_and_preserves_full_livetime():
@@ -127,8 +121,8 @@ def test_energy_selection_is_half_open_and_preserves_full_livetime():
 
     selected = events.select_energy(1 * u.TeV, 4 * u.TeV)
 
-    np.testing.assert_allclose(selected.energy.value, [1, 2])
-    np.testing.assert_allclose(selected.x.value, [1, 2])
+    np.testing.assert_allclose(selected.energy, [1, 2])
+    np.testing.assert_allclose(selected.x, [1, 2])
     assert selected.livetime == events.livetime
 
 
@@ -158,9 +152,9 @@ def test_add_concatenates_events_and_sums_livetime():
 
     combined = first.add(second)
 
-    np.testing.assert_allclose(combined.x.value, [0, 1, 2])
-    np.testing.assert_allclose(combined.y.value, [0, 0, 0.5])
-    np.testing.assert_allclose(combined.energy.value, [0.2, 1, 3])
+    np.testing.assert_allclose(combined.x, [0, 1, 2])
+    np.testing.assert_allclose(combined.y, [0, 0, 0.5])
+    np.testing.assert_allclose(combined.energy, [0.2, 1, 3])
     assert combined.livetime == 40 * u.s
 
 
@@ -175,25 +169,25 @@ def test_add_includes_livetime_from_an_empty_sample():
 
 
 def test_add_does_not_modify_or_share_arrays_with_operands():
-    first = make_events(x=(0,), y=(0,), energy=(1,), livetime=10)
-    second = make_events(x=(1,), y=(1,), energy=(2,), livetime=20)
+    first = make_events(x=(0,), y=(0,), energy=(1,), livetime=10 * u.s)
+    second = make_events(x=(1,), y=(1,), energy=(2,), livetime=20 * u.s)
 
     combined = first.add(second)
-    combined.x[0] = 99 * u.deg
+    combined.x[0] = 99
 
-    assert first.x[0] == 0 * u.deg
-    assert second.x[0] == 1 * u.deg
+    assert first.x[0] == 0
+    assert second.x[0] == 1
     assert first.livetime == 10 * u.s
     assert second.livetime == 20 * u.s
 
 
 def test_plus_operator_has_the_same_semantics_as_add():
-    first = make_events(x=(0,), y=(0,), energy=(1,), livetime=10)
-    second = make_events(x=(1,), y=(1,), energy=(2,), livetime=20)
+    first = make_events(x=(0,), y=(0,), energy=(1,), livetime=10 * u.s)
+    second = make_events(x=(1,), y=(1,), energy=(2,), livetime=20 * u.s)
 
     combined = first + second
 
-    np.testing.assert_allclose(combined.energy.value, [1, 2])
+    np.testing.assert_allclose(combined.energy, [1, 2])
     assert combined.livetime == 30 * u.s
 
 

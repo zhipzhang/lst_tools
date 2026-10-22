@@ -1,16 +1,26 @@
-"""Create an LST analysis workspace with linked data and DataCheck products."""
+"""Run the LST analysis pipeline, from run selection to DL3.
+
+The per-level logic lives in ``lst_tools.pipeline``: each data level has a
+producer that either links files the standard pipeline already produced on
+La Palma or builds them ourselves, selected by the config's ``source``
+mode (``agent_doc/20261022_init_lstana_source_modes.md``):
+
+1-2. select runs (nightly DataCheck statistics + configured quality cuts)
+     and save the data-check tables and cut diagnostics
+3.   DL1Producer: link DL1 (the external input data)
+4.   DL2Producer: build DL2 from the linked DL1 with the configured RF
+     models, or link the official DL2
+5.   DL3Producer: build DL3 from our DL2 + our IRFs, or link existing DL3
+"""
 
 import argparse
-import os
-import warnings
+import sys
 from collections import Counter
 from pathlib import Path
 
-import pandas as pd
-
-try:
+if sys.version_info >= (3, 11):
     import tomllib
-except ModuleNotFoundError:  # pragma: no cover - Python 3.10 compatibility
+else:  # pragma: no cover - Python 3.10 compatibility
     import tomli as tomllib
 
 from lst_tools.datacheck import (
@@ -18,202 +28,103 @@ from lst_tools.datacheck import (
     DataFilter,
     assign_zenith_bins,
     validate_zenith_bin_edges,
-    zenith_bin_labels,
 )
-from lst_tools.dl3 import (
-    DL3Product,
-    discover_lst_dl3_products,
-    load_dl3_requests,
-    select_configured_dl3_products,
+from lst_tools.finder.helper import filter_date
+from lst_tools.helper import glob_files
+from lst_tools.pipeline import (
+    DL1Producer,
+    DL2Producer,
+    DL3Producer,
+    DLProducer,
+    PipelineConfig,
+    RunSelection,
+    SourceConfig,
 )
-from lst_tools.helper import find_lst_data_path, glob_files
 
 DATACHECK_DIR = (
     "/fefs/aswg/data/real/DL1/datacheck_files/night_wise/",
     "/fefs/onsite/data/lst-pipe/LSTN-01/DL1/datacheck_files/night_wise/",
 )
-SUPPORTED_LEVELS = ("dl1", "dl2")
+DATACHECK_PATTERN = "DL1_datacheck_20*.h5"
 
 
-def create_safe_link(source: Path, destination: Path) -> str:
-    """Create a symlink without replacing an existing file or different link."""
-    destination.parent.mkdir(parents=True, exist_ok=True)
-
-    if destination.is_symlink():
-        if Path(os.path.realpath(destination)) == Path(os.path.realpath(source)):
-            return "existing"
-        warnings.warn(f"Link destination already points elsewhere: {destination}", stacklevel=2)
-        return "conflict"
-
-    if destination.exists():
-        warnings.warn(f"Refusing to replace existing file: {destination}", stacklevel=2)
-        return "conflict"
-
-    destination.symlink_to(source)
-    return "created"
+def load_config(path: Path) -> dict:
+    """Load the raw pipeline configuration from TOML (a plain dict)."""
+    with path.open("rb") as file_handle:
+        return tomllib.load(file_handle)
 
 
-def create_data_links(
-    selected_runs: pd.DataFrame,
-    output_root: Path,
-    levels: tuple[str, ...],
-    path_finder=find_lst_data_path,
-) -> Counter:
-    """Create idempotent DL1/DL2 links grouped by zenith-angle bin."""
-    unsupported = set(levels).difference(SUPPORTED_LEVELS)
-    if unsupported:
-        raise ValueError(f"Unsupported data levels: {sorted(unsupported)}")
+def load_datacheck_tables(raw_config: dict) -> DataCheckTables:
+    """Load the nightly DataCheck files within the configured date range.
 
-    counts = Counter()
-
-    for _, row in selected_runs.iterrows():
-        run_number = int(row["run_number"])
-        zenith_bin = row["zenith_bin"]
-        if not isinstance(zenith_bin, str):
-            warnings.warn(f"Run {run_number} has no zenith bin; skipping links", stacklevel=2)
-            counts["unbinned"] += 1
-            continue
-
-        date = int(row["date"])
-        for level in levels:
-            source_name = path_finder(date, int(run_number), level=level)
-            if not source_name:
-                counts[f"{level}:missing"] += 1
-                continue
-
-            source = Path(source_name)
-            output_dir = output_root / level / zenith_bin
-            destination = output_dir / source.name
-            status = create_safe_link(source, destination)
-            counts[f"{level}:{status}"] += 1
-
-    return counts
+    The date cuts narrow the file list *before* loading: each datacheck
+    file is only opened if its night lies within
+    ``[data_filter.cuts] first_date/last_date``.
+    """
+    files = glob_files(DATACHECK_DIR, DATACHECK_PATTERN)
+    cuts = raw_config.get("data_filter", {}).get("cuts", {})
+    files = filter_date(files, int(cuts.get("first_date", 0)), int(cuts.get("last_date", 20999999)))
+    if not files:
+        raise FileNotFoundError(f"No datacheck files found under {DATACHECK_DIR} within the configured date range")
+    return DataCheckTables.from_files(files)
 
 
-def create_dl3_links(
-    selected_runs: pd.DataFrame,
-    output_root: Path,
-    dl3_config: dict,
-    product_finder=discover_lst_dl3_products,
-) -> Counter:
-    """Link only explicitly configured DL3 products for the selected runs."""
-    requests = load_dl3_requests(dl3_config)
-    counts = Counter()
-
-    for _, row in selected_runs.iterrows():
-        run_number = int(row["run_number"])
-        zenith_bin = row["zenith_bin"]
-        if not isinstance(zenith_bin, str):
-            counts["dl3:unbinned"] += 1
-            continue
-
-        date = int(row["date"])
-        available = product_finder(date, int(run_number))
-        configured = select_configured_dl3_products(available, requests)
-
-        for request in requests:
-            product: DL3Product | None = configured.get(request)
-            counter_prefix = f"dl3:{request.name}:{request.cut_config}"
-            if product is None:
-                counts[f"{counter_prefix}:missing"] += 1
-                continue
-
-            destination = output_root / "dl3" / request.name / request.cut_config / zenith_bin / product.path.name
-            status = create_safe_link(product.path, destination)
-            counts[f"{counter_prefix}:{status}"] += 1
-
-    return counts
-
-
-def prepare_working_directory(
-    output_root: Path,
-    edges: tuple[float, ...],
-    initialization: dict,
-    dl3_config: dict,
-) -> tuple[str, ...]:
-    """Create the configured DL1, DL2, DL3, and DataCheck directories."""
-    labels = zenith_bin_labels(edges)
-    requested_levels = tuple(level for level in SUPPORTED_LEVELS if initialization.get(level, False))
-
-    for level in requested_levels:
-        for label in labels:
-            (output_root / level / label).mkdir(parents=True, exist_ok=True)
-
-    if initialization.get("data_check", True):
-        (output_root / "data_check").mkdir(parents=True, exist_ok=True)
-
-    if dl3_config.get("enabled", False):
-        for request in load_dl3_requests(dl3_config):
-            for label in labels:
-                (output_root / "dl3" / request.name / request.cut_config / label).mkdir(
-                    parents=True,
-                    exist_ok=True,
-                )
-
-    return requested_levels
-
-
-def select_runs(
-    tables: DataCheckTables,
-    source_config: dict,
-    filter_config: dict,
-    edges: tuple[float, ...],
-) -> tuple[pd.DataFrame, pd.DataFrame, DataFilter]:
-    """Calculate run statistics and apply the configured data-quality cuts."""
-    cuts = dict(filter_config.get("cuts", {}))
+def select_runs(raw_config: dict) -> RunSelection:
+    """Stages 1-2 input: apply the data-quality cuts and assign zenith bins."""
+    source_config = SourceConfig.parse(raw_config.get("source"))
+    edges = validate_zenith_bin_edges(raw_config["zenith_binning"]["edges_deg"])
+    data_filter_config = raw_config.get("data_filter", {})
+    cuts = dict(data_filter_config.get("cuts", {}))
     cuts["min_zenith_angle"] = edges[0]
     cuts["max_zenith_angle"] = edges[-1]
-    data_filter = DataFilter(
-        source_ra=source_config["ra"],
-        source_dec=source_config["dec"],
-        **cuts,
+    data_filter = DataFilter(source_ra=source_config.ra, source_dec=source_config.dec, **cuts)
+
+    tables = load_datacheck_tables(raw_config)
+    after_basic_cuts = data_filter.apply_basic_cuts(tables.statistics)
+    selected = after_basic_cuts
+    if data_filter_config.get("with_advanced", False):
+        selected = data_filter.apply_advanced_cuts(selected)
+
+    return RunSelection(
+        edges=edges,
+        selected=assign_zenith_bins(selected, edges),
+        tables=tables,
+        after_basic_cuts=after_basic_cuts,
+        data_filter=data_filter,
     )
 
-    runs_after_basic_cuts = data_filter.apply_basic_cuts(tables.statistics)
-    selected_runs = runs_after_basic_cuts
-    if filter_config.get("with_advanced", False):
-        selected_runs = data_filter.apply_advanced_cuts(selected_runs)
 
-    return assign_zenith_bins(selected_runs, edges), runs_after_basic_cuts, data_filter
-
-
-def save_datacheck_outputs(
-    tables: DataCheckTables,
-    selected_runs: pd.DataFrame,
-    runs_after_basic_cuts: pd.DataFrame,
-    data_filter: DataFilter,
-    output_dir: Path,
-    stem: str,
-) -> None:
-    """Save selected DataCheck tables and advanced-cut diagnostic plots."""
+def save_datacheck_outputs(selection: RunSelection, raw_config: dict, output_dir: Path) -> None:
+    """Save the selected DataCheck tables and advanced-cut diagnostic plots."""
     import matplotlib.pyplot as plt
 
     from lst_tools.datacheck import plot_advanced_distributions
 
-    run_numbers = selected_runs["run_number"].tolist()
-    tables.select_runs(run_numbers).save_to_h5file(
+    source_config = SourceConfig.parse(raw_config.get("source"))
+    stem = "_".join(source_config.name.split()) + f"_ra_{source_config.ra}_dec_{source_config.dec}"
+    output_dir.mkdir(parents=True, exist_ok=True)
+    if selection.tables is None:
+        raise ValueError("save_datacheck_outputs requires the datacheck tables from select_runs")
+
+    run_numbers = selection.selected["run_number"].tolist()
+    selection.tables.select_runs(run_numbers).save_to_h5file(
         output_dir / f"data_check_{stem}.h5",
         overwrite=True,
     )
 
-    figures = plot_advanced_distributions(runs_after_basic_cuts, data_filter)
+    figures = plot_advanced_distributions(selection.after_basic_cuts, selection.data_filter)
     for name, figure in figures.items():
         figure.savefig(output_dir / f"advanced_cut_{name}.png")
         plt.close(figure)
 
 
-def load_config(path: Path) -> dict:
-    """Load an initialization configuration from TOML."""
-    with path.open("rb") as file_handle:
-        return tomllib.load(file_handle)
-
-
-def load_datacheck_tables() -> DataCheckTables:
-    """Load all available nightly DataCheck files."""
-    files = glob_files(DATACHECK_DIR, "DL1_datacheck_20*.h5")
-    if not files:
-        raise FileNotFoundError(f"No datacheck files found under {DATACHECK_DIR}")
-    return DataCheckTables.from_files(files)
+def make_producers(pipeline_config: PipelineConfig, raw_config: dict, output_root: Path) -> list[DLProducer]:
+    """The producer chain; each level finds its input in the previous one."""
+    source_config = SourceConfig.parse(raw_config.get("source"))
+    dl1 = DL1Producer(pipeline_config.dl1, output_root)
+    dl2 = DL2Producer(pipeline_config.dl2, output_root, dl1_directory=dl1.output_dir)
+    dl3 = DL3Producer(pipeline_config.dl3, output_root, source=source_config, dl2_directory=dl2.output_dir)
+    return [dl1, dl2, dl3]
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -237,39 +148,20 @@ def main() -> None:
     if config_file is None:
         parser.error("a configuration file is required")
 
-    config = load_config(config_file)
-    source_config = config["source"]
-    source_name = "_".join(source_config["name"].split())
-    edges = validate_zenith_bin_edges(config["zenith_binning"]["edges_deg"])
+    raw_config = load_config(config_file)
+    pipeline_config = PipelineConfig.parse(raw_config)
     output_root = args.output.resolve()
-    initialization = config.get("initialization", {})
-    dl3_config = config.get("dl3", {})
 
-    data_check_tables = load_datacheck_tables()
-    selected_runs, runs_after_basic_cuts, data_filter = select_runs(
-        data_check_tables,
-        source_config,
-        config.get("data_filter", {}),
-        edges,
-    )
-    requested_levels = prepare_working_directory(output_root, edges, initialization, dl3_config)
+    selection = select_runs(raw_config)  # 1-2
+    save_datacheck_outputs(selection, raw_config, output_root / "data_check")
 
-    if initialization.get("data_check", True):
-        stem = f"{source_name}_ra_{source_config['ra']}_dec_{source_config['dec']}"
-        save_datacheck_outputs(
-            data_check_tables,
-            selected_runs,
-            runs_after_basic_cuts,
-            data_filter,
-            output_root / "data_check",
-            stem,
-        )
+    counts: Counter = Counter()
+    for producer in make_producers(pipeline_config, raw_config, output_root):  # 3-5
+        if not producer.config.enabled:
+            continue
+        counts += producer.produce(selection)
 
-    counts = create_data_links(selected_runs, output_root, requested_levels)
-    if dl3_config.get("enabled", False):
-        counts.update(create_dl3_links(selected_runs, output_root, dl3_config))
-
-    print(f"Selected {len(selected_runs)} runs")
+    print(f"Selected {len(list(selection))} runs")
     for item, count in sorted(counts.items()):
         print(f"  {item}: {count}")
 

@@ -71,6 +71,18 @@ def test_parses_processing_metadata(patched_dl2_io):
 
 
 @pytest.mark.parametrize(
+    ("intensity_cut", "expected"),
+    [(21.0, 30.0), (50.0, 50.0), (50.1, 60.0)],
+)
+def test_intensity_cuts_rounds_up_to_next_ten(patched_dl2_io, monkeypatch, intensity_cut, expected):
+    monkeypatch.setattr(dl2table_module, "get_intensity_cut", lambda data: intensity_cut)
+
+    table = LSTDL2EventTable("/data/dl2_LST-1.Run00042.h5")
+
+    assert table.intensity_cuts == pytest.approx(expected)
+
+
+@pytest.mark.parametrize(
     ("directory_name", "expected"),
     [("dec_931", 931), ("dec_2276", 2276), ("dec_min_413", -413), ("dec_min_1802", -1802)],
 )
@@ -89,3 +101,22 @@ def test_rejects_filename_without_run_number_before_reading_file(monkeypatch):
 
     with pytest.raises(ValueError, match="run number"):
         LSTDL2EventTable("/data/dl2_without_run_number.h5")
+
+
+def test_read_dl2_events_adds_gh_score_alias_of_gammaness(monkeypatch):
+    events = pd.DataFrame({"gammaness": [0.5, 0.9]})
+    monkeypatch.setattr(dl2table_base_module.pd, "read_hdf", lambda filename, key: events)
+
+    result = dl2table_base_module.LSTDL2TableBase.read_dl2_events("dummy.h5")
+
+    assert result["gh_score"].tolist() == [0.5, 0.9]
+    assert result["gammaness"].tolist() == [0.5, 0.9]
+
+
+def test_read_dl2_events_keeps_an_existing_gh_score_column(monkeypatch):
+    events = pd.DataFrame({"gammaness": [0.5], "gh_score": [0.7]})
+    monkeypatch.setattr(dl2table_base_module.pd, "read_hdf", lambda filename, key: events)
+
+    result = dl2table_base_module.LSTDL2TableBase.read_dl2_events("dummy.h5")
+
+    assert result["gh_score"].tolist() == [0.7]

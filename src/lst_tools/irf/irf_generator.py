@@ -1,70 +1,69 @@
 import json
 import subprocess
-import warnings
 from pathlib import Path
 
+from .config import IRFConfig
 from .irf_nodes import IRFNode
-
-default_config_path = Path(__file__).parent / "default_config.json"
 
 
 class IRFGenerator:
-    def __init__(self, base_path: str, name_style="irf.fits.gz"):
-        if Path(base_path).exists():
-            self.base_path = Path(base_path)
-        else:
-            self.base_path = Path(base_path)
-            self.base_path.mkdir(parents=True, exist_ok=True)
-        self.name_style = name_style
+    """Generate IRF files for IRF nodes under one ``IRFConfig``.
 
-    def _irf_node_exist(self, node: IRFNode):
-        path_exist = (self.base_path / node.path_name).exists()
-        file_exist = (self.base_path / node.path_name / self.name_style).exists()
-        if not path_exist:
+    Each node maps to one IRF file at ``base_path / node.relative_path``;
+    the config and log of the generating ``lstchain_create_irf_files``
+    command are written next to it as ``<pointing_name>.config.json`` /
+    ``<pointing_name>.log``.
+    """
+
+    def __init__(self, base_path: str | Path, irf_config: IRFConfig):
+        self.base_path = Path(base_path)
+        self.base_path.mkdir(parents=True, exist_ok=True)
+        self.irf_config = irf_config
+
+    def irf_file(self, node: IRFNode) -> Path:
+        return self.base_path / node.relative_path
+
+    def _config_file(self, node: IRFNode) -> Path:
+        return self.irf_file(node).parent / f"{node.pointing_name}.config.json"
+
+    def _log_file(self, node: IRFNode) -> Path:
+        return self.irf_file(node).parent / f"{node.pointing_name}.log"
+
+    def _is_fresh(self, node: IRFNode, config: dict) -> bool:
+        """True when the IRF exists and was generated with the same config."""
+        if not self.irf_file(node).is_file():
             return False
-        if not file_exist:
-            warnings.warn(f"IRF file not found: {self.base_path / node.path_name / self.name_style}", UserWarning)
+        config_file = self._config_file(node)
+        if not config_file.is_file():
             return False
-        return True
+        with open(config_file) as file_handle:
+            return json.load(file_handle) == config
 
     def make_irf_node(self, node: IRFNode) -> Path:
-        """Create an IRF node if needed and return its FITS file path."""
-        if not default_config_path.exists():
-            raise FileNotFoundError(f"Default config file not found: {default_config_path}")
-        if node.dl2_path is None:
-            raise ValueError("IRF node does not have an input DL2 path")
-        if node.gh_efficiency is None:
-            raise ValueError("IRF node does not have a gamma efficiency")
+        """Create the node's IRF if needed and return its FITS file path.
 
-        node_path = self.base_path / node.path_name
-        irf_file = node_path / self.name_style
-        if irf_file.exists():
+        An existing IRF is reused only when it was generated with the same
+        config (event selection, binning, gammaness mode); otherwise it is
+        regenerated.
+        """
+        irf_file = self.irf_file(node)
+        config = self.irf_config.to_lstchain_config()
+        if self._is_fresh(node, config):
             return irf_file.resolve()
 
-        node_path.mkdir(parents=True, exist_ok=True)
-        with open(default_config_path) as f:
-            self.config = json.load(f)
+        irf_file.parent.mkdir(parents=True, exist_ok=True)
+        config_file = self._config_file(node)
+        with open(config_file, "w") as file_handle:
+            json.dump(config, file_handle, indent=4)
 
-        # Update the lower intensity cut while preserving the upper bound.
-        self.config["EventSelector"]["filters"]["intensity"][0] = node.intensity_cuts
-
-        # Update the gh_efficiency in DL3cuts
-        self.config["DL3Cuts"]["gh_efficiency"] = node.gh_efficiency
-        config_file_path = node_path / "config.json"
-        log_file = node_path / "log.txt"
-        with open(config_file_path, "w") as f:
-            json.dump(self.config, f, indent=4)
-
-        # Running the `lstchain_create_irf_files` command
         subprocess.run(
             [
                 "lstchain_create_irf_files",
-                "--config=" + str(config_file_path),
-                "--input-gamma-dl2=" + str(node.dl2_path),
-                "--log-file=" + str(log_file),
-                "--gh-efficiency=" + str(node.gh_efficiency),
-                "--output-irf-file=" + str(irf_file),
-                "--energy-dependent-gh",
+                f"--config={config_file}",
+                f"--input-gamma-dl2={node.dl2_path}",
+                f"--output-irf-file={irf_file}",
+                f"--log-file={self._log_file(node)}",
+                "--overwrite",
             ],
             check=True,
         )

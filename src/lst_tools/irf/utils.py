@@ -8,9 +8,44 @@ from .irf_nodes import IRFNode
 MC_DL2_PATH = Path("/fefs/aswg/data/mc/DL2/AllSky")
 
 _NSB_PATTERN = re.compile(r"(?:^|_)nsb_(?P<nsb>\d+(?:\.\d+)?)$")
+_DEC_PATTERN = re.compile(r"dec_(?:(?P<negative>min)_)?(?P<digits>\d+)$")
 _NODE_PATTERN = re.compile(
     r"node_(?:corsika_)?theta_(?P<zenith>[+-]?\d+(?:\.\d+)?)_az_(?P<azimuth>[+-]?\d+(?:\.\d+)?)_*$"
 )
+
+
+def irf_node_from_path(dl2_path: str | Path) -> IRFNode:
+    """Parse the IRF node an MC DL2 file belongs to from its path.
+
+    Expects the standard AllSky layout, with the NSB campaign, declination
+    line, and pointing encoded in the directory names::
+
+        .../nsb_<nsb>/.../dec_<line>/node_theta_<zenith>_az_<azimuth>_*/dl2_*.h5
+
+    (``dec_min_<line>`` for negative declinations, ``node_corsika_...``
+    for corsika nodes.)
+    """
+    dl2_path = Path(dl2_path)
+    nsb_level = dec_line = zenith = azimuth = None
+    for part in dl2_path.parts:
+        if match := _NSB_PATTERN.search(part):
+            nsb_level = float(match.group("nsb"))
+        if match := _DEC_PATTERN.fullmatch(part):
+            dec_line = -int(match.group("digits")) if match.group("negative") else int(match.group("digits"))
+        if match := _NODE_PATTERN.fullmatch(part):
+            zenith = float(match.group("zenith"))
+            azimuth = float(match.group("azimuth"))
+
+    if None in (nsb_level, dec_line, zenith, azimuth):
+        raise ValueError(f"Could not parse an IRF node from the MC DL2 path: {dl2_path}")
+
+    return IRFNode(
+        nsb_level=nsb_level,
+        dec_line=dec_line,
+        zenith=zenith,
+        azimuth=azimuth,
+        dl2_path=dl2_path,
+    )
 
 
 def _campaign_matches_nsb(path: Path, nsb_level: float) -> bool:
@@ -42,20 +77,22 @@ def _find_declination_directories(
     )
 
 
-def find_dl2_mc_path(
-    base_path: str | Path,
+def find_irf_nodes(
     dl2_table: LSTDL2EventTable,
+    base_path: str | Path = MC_DL2_PATH,
     *,
     diffuse: bool = True,
-    gh_efficiency: float = 0.7,
 ) -> list[IRFNode]:
-    """Find the DL2 MC files matching an observation's NSB and declination.
+    """Find the IRF nodes matching an observation's NSB level and declination line.
 
-    ``base_path`` may point to the AllSky DL2 root, a campaign directory, or
-    its declination directory. By default, files are read from
-    ``TestingDataset/GammaDiffuse``; pass ``diffuse=False`` to use
-    ``TestingDataset/Gamma``. One node is returned for every merged DL2 file
-    in a directory named ``node_theta_<zenith>_az_<azimuth>_`` or
+    The observation's DL2 table carries its NSB tuning and declination line
+    through the RF model directory recorded in its provenance; both are used
+    to locate the corresponding MC test dataset under ``base_path`` (the
+    AllSky MC DL2 root, a campaign directory, or a declination directory).
+    By default, files are read from ``TestingDataset/GammaDiffuse``; pass
+    ``diffuse=False`` to use ``TestingDataset/Gamma``. One node is returned
+    for every merged DL2 file in a directory named
+    ``node_theta_<zenith>_az_<azimuth>_`` or
     ``node_corsika_theta_<zenith>_az_<azimuth>_``.
     """
     base_path = Path(base_path)
@@ -71,27 +108,14 @@ def find_dl2_mc_path(
     if dec_line is None:
         raise ValueError("DL2 table does not contain a declination line")
 
-    declination = dec_line / 100
-    intensity_cuts = dl2_table.intensity_cuts
     nodes = []
     for dec_path in _find_declination_directories(base_path, nsb_level, dec_line, diffuse):
         for node_path in sorted(dec_path.glob("node_*theta_*_az_*")):
-            if not node_path.is_dir() or (match := _NODE_PATTERN.fullmatch(node_path.name)) is None:
+            if not node_path.is_dir() or _NODE_PATTERN.fullmatch(node_path.name) is None:
                 continue
 
-            zenith = float(match.group("zenith"))
-            azimuth = float(match.group("azimuth"))
             for dl2_path in sorted(node_path.glob("dl2_*merged.h5")):
                 if dl2_path.is_file():
-                    nodes.append(
-                        IRFNode(
-                            declination=declination,
-                            zenith=zenith,
-                            azimuth=azimuth,
-                            intensity_cuts=intensity_cuts,
-                            dl2_path=dl2_path,
-                            gh_efficiency=gh_efficiency,
-                        )
-                    )
+                    nodes.append(irf_node_from_path(dl2_path))
 
     return nodes
