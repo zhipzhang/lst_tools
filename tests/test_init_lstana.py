@@ -1,150 +1,183 @@
+import textwrap
+from types import SimpleNamespace
+
 import numpy as np
 import pandas as pd
 import pytest
 
-from lst_tools.datacheck import assign_zenith_bins
-from lst_tools.scripts.init_lstana import (
-    create_data_links,
-    load_irf_config,
-    prepare_working_directory,
-    validate_config,
-)
+from lst_tools.pipeline import PipelineConfig, RunSelection
+from lst_tools.scripts import init_lstana
+
+MINIMAL_CONFIG = {
+    "source": {"name": "Crab Nebula", "ra": 83.632, "dec": 22.0145},
+    "zenith_binning": {"edges_deg": [0.0, 20.0, 30.0]},
+    "data_filter": {"cuts": {"first_date": 20220101, "last_date": 20221231}},
+}
 
 
-def test_prepare_working_directory_creates_the_stage_layout(tmp_path):
-    config = {
-        "dl2": {"rf_directory": "/models/nsb_tuning_0.24/dec_347"},
-        "dl3": {"enabled": True},
-    }
+class TestLoadDatacheckTables:
+    def test_date_cuts_narrow_files_before_loading(self, monkeypatch):
+        files = [
+            "/data/DL1_datacheck_20211231.h5",
+            "/data/DL1_datacheck_20220101.h5",
+            "/data/DL1_datacheck_20220615.h5",
+            "/data/DL1_datacheck_20221231.h5",
+            "/data/DL1_datacheck_20230101.h5",
+        ]
+        monkeypatch.setattr(init_lstana, "glob_files", lambda dirs, pattern: files)
+        captured = {}
 
-    prepare_working_directory(tmp_path, (0.0, 20.0, 40.0), config)
+        def fake_from_files(loaded_files):
+            captured["files"] = list(loaded_files)
+            return SimpleNamespace()
 
-    assert (tmp_path / "data_check").is_dir()
-    for level in ("dl1", "dl2", "dl3"):
-        assert (tmp_path / level / "zd_0_20").is_dir()
-        assert (tmp_path / level / "zd_20_40").is_dir()
+        monkeypatch.setattr(init_lstana.DataCheckTables, "from_files", fake_from_files)
 
+        init_lstana.load_datacheck_tables(MINIMAL_CONFIG)
 
-def test_prepare_working_directory_only_creates_dirs_of_active_stages(tmp_path):
-    prepare_working_directory(tmp_path, (0.0, 20.0), {})
+        assert captured["files"] == files[1:4]
 
-    assert (tmp_path / "data_check").is_dir()
-    assert (tmp_path / "dl1" / "zd_0_20").is_dir()
-    assert not (tmp_path / "dl2").exists()
-    assert not (tmp_path / "dl3").exists()
+    def test_no_files_in_range_raises(self, monkeypatch):
+        monkeypatch.setattr(init_lstana, "glob_files", lambda dirs, pattern: ["/data/DL1_datacheck_20200101.h5"])
 
-
-def test_validate_config_requires_rf_directory_with_mc_group_naming():
-    with pytest.raises(ValueError, match="rf_directory"):
-        validate_config({"dl2": {}})
-    with pytest.raises(ValueError, match="nsb_tuning_<x>/dec_<NNNN>"):
-        validate_config({"dl2": {"rf_directory": "/models/somewhere"}})
-    validate_config({"dl2": {"rf_directory": "/models/nsb_tuning_0.24/dec_347"}})
+        with pytest.raises(FileNotFoundError, match="within the configured date range"):
+            init_lstana.load_datacheck_tables(MINIMAL_CONFIG)
 
 
-def test_validate_config_dl3_requires_the_irf_section():
-    with pytest.raises(ValueError, match=r"\[irf\] section"):
-        validate_config({"dl3": {"enabled": True}})
+class FakeDataFilter:
+    """Records its cuts and passes statistics through."""
 
-    validate_config(
+    def __init__(self, **kwargs):
+        self.kwargs = kwargs
+
+    def apply_basic_cuts(self, statistics):
+        return statistics
+
+    def apply_advanced_cuts(self, statistics):
+        return statistics
+
+
+def make_stats_frame():
+    return pd.DataFrame(
         {
-            "dl3": {"enabled": True},
-            "irf": {"intensity_cut": 80, "leakage_cut": 1.0, "gh_cut": 0.7},
+            "run_number": [1, 2],
+            "date": [20220426, 20220427],
+            "mean_cos_zd": [np.cos(np.radians(15.0)), np.cos(np.radians(25.0))],
         }
     )
 
 
-def test_load_irf_config_builds_the_shared_event_filter():
-    config = {
-        "irf": {
-            "intensity_cut": 80,
-            "leakage_cut": 1.0,
-            "gh_efficiency": 0.7,
-        }
-    }
+class TestSelectRuns:
+    def test_returns_a_run_selection_with_bins_and_bookkeeping(self, monkeypatch):
+        tables = SimpleNamespace(statistics=make_stats_frame())
+        monkeypatch.setattr(init_lstana, "load_datacheck_tables", lambda config: tables)
+        monkeypatch.setattr(init_lstana, "DataFilter", FakeDataFilter)
 
-    irf_config = load_irf_config(config)
+        selection = init_lstana.select_runs(MINIMAL_CONFIG)
 
-    event_selector = irf_config.event_filter.event_selector
-    assert event_selector.filters["intensity"] == [80.0, np.inf]
-    assert event_selector.filters["leakage_intensity_width_2"] == [0, 1.0]
-    assert irf_config.event_filter.energy_dependent_gh is True
-    assert irf_config.event_filter.dl3_cuts.gh_efficiency == 0.7
+        assert selection.edges == (0.0, 20.0, 30.0)
+        assert selection.tables is tables
+        assert selection.after_basic_cuts is tables.statistics
+        assert [run.zenith_bin for run in selection] == ["zd_0_20", "zd_20_30"]
+        # the zenith range of the configured binning becomes a data cut
+        assert selection.data_filter.kwargs["min_zenith_angle"] == 0.0
+        assert selection.data_filter.kwargs["max_zenith_angle"] == 30.0
+
+    def test_advanced_cuts_apply_only_when_configured(self, monkeypatch):
+        tables = SimpleNamespace(statistics=make_stats_frame())
+        monkeypatch.setattr(init_lstana, "load_datacheck_tables", lambda config: tables)
+
+        class CountingFilter(FakeDataFilter):
+            def __init__(self, **kwargs):
+                super().__init__(**kwargs)
+                self.advanced_calls = 0
+
+            def apply_advanced_cuts(self, statistics):
+                self.advanced_calls += 1
+                return statistics
+
+        monkeypatch.setattr(init_lstana, "DataFilter", CountingFilter)
+        selection = init_lstana.select_runs({**MINIMAL_CONFIG, "data_filter": {"with_advanced": True, "cuts": {}}})
+
+        assert selection.data_filter.advanced_calls == 1
 
 
-def test_load_irf_config_requires_the_irf_section():
-    with pytest.raises(ValueError, match=r"\[irf\] section"):
-        load_irf_config({})
-
-
-def test_load_irf_config_requires_exactly_one_gammaness_mode():
-    section = {"intensity_cut": 80, "leakage_cut": 1.0}
-
-    with pytest.raises(ValueError, match="exactly one of gh_cut and gh_efficiency"):
-        load_irf_config({"irf": section})
-    with pytest.raises(ValueError, match="exactly one of gh_cut and gh_efficiency"):
-        load_irf_config({"irf": {**section, "gh_cut": 0.7, "gh_efficiency": 0.7}})
-
-
-def test_create_data_links_groups_runs_and_is_idempotent(tmp_path):
-    sources = tmp_path / "sources"
-    sources.mkdir()
-    source_files = {}
-    for level in ("dl1", "dl2"):
-        source = sources / f"{level}_LST-1.Run00001.h5"
-        source.touch()
-        source_files[level] = source
-
-    stats = assign_zenith_bins(
-        pd.DataFrame(
+class TestBuildProducers:
+    def test_producers_are_wired_to_each_others_output_dirs(self, tmp_path):
+        pipeline_config = PipelineConfig.parse(
             {
-                "run_number": [1],
-                "date": [20240101],
-                "mean_cos_zd": [np.cos(np.radians(15.0))],
+                "dl1": {"link": {"output_directory": str(tmp_path / "linked_dl1")}},
+                "dl2": {
+                    "enabled": True,
+                    "source": "build",
+                    "build": {
+                        "output_directory": str(tmp_path / "built_dl2"),
+                        "rf_directory": "/models/nsb_tuning_$NSB_LEVEL/dec_347",
+                    },
+                },
+                "dl3": {"enabled": True, "source": "link", "link": {"irf_type": "point"}},
             }
-        ),
-        [0, 20, 40],
-    )
+        )
 
-    def find_path(date, run_number, level):
-        assert date == 20240101
-        assert run_number == 1
-        return str(source_files[level])
+        producers = init_lstana.make_producers(pipeline_config, MINIMAL_CONFIG, tmp_path / "out")
 
-    output = tmp_path / "analysis"
-    first = create_data_links(stats, output, ("dl1", "dl2"), path_finder=find_path)
-    second = create_data_links(stats, output, ("dl1", "dl2"), path_finder=find_path)
+        _, dl2, dl3 = producers
+        assert dl2.dl1_directory == tmp_path / "linked_dl1"
+        assert dl2.output_dir == tmp_path / "built_dl2"
+        assert dl3.dl2_directory == tmp_path / "built_dl2"
+        assert dl3.source.name == "Crab Nebula"
 
-    assert first == {"dl1:created": 1, "dl2:created": 1}
-    assert second == {"dl1:existing": 1, "dl2:existing": 1}
-    for level, source in source_files.items():
-        destination = output / level / "zd_0_20" / source.name
-        assert destination.is_symlink()
-        assert destination.resolve() == source.resolve()
+    def test_producers_default_to_the_output_root_tree(self, tmp_path):
+        pipeline_config = PipelineConfig.parse({"dl1": {}, "dl2": {"enabled": True, "source": "link"}})
 
+        producers = init_lstana.make_producers(pipeline_config, MINIMAL_CONFIG, tmp_path / "out")
 
-def test_create_data_links_does_not_replace_conflicting_file(tmp_path):
-    stats = assign_zenith_bins(
-        pd.DataFrame({"run_number": [1], "date": [20240101], "mean_cos_zd": [1.0]}),
-        [0, 20],
-    )
-    destination_dir = tmp_path / "dl1" / "zd_0_20"
-    destination_dir.mkdir(parents=True)
-    destination = destination_dir / "dl1_LST-1.Run00001.h5"
-    destination.write_text("keep me")
-
-    def find_path(date, run_number, level):
-        return str(tmp_path / "source" / destination.name)
-
-    with pytest.warns(UserWarning, match="Refusing to replace"):
-        counts = create_data_links(stats, tmp_path, ("dl1",), path_finder=find_path)
-
-    assert counts == {"dl1:conflict": 1}
-    assert destination.read_text() == "keep me"
+        dl1, dl2, dl3 = producers
+        assert dl1.output_dir == tmp_path / "out" / "dl1"
+        assert dl2.dl1_directory == tmp_path / "out" / "dl1"
+        assert dl3.dl2_directory == tmp_path / "out" / "dl2"
 
 
-def test_create_data_links_rejects_unsupported_level(tmp_path):
-    stats = pd.DataFrame(columns=["run_number", "date", "zenith_bin"])
+class TestMain:
+    def test_disabled_producers_are_skipped(self, tmp_path, monkeypatch, capsys):
+        config_path = tmp_path / "config.toml"
+        config_path.write_text(
+            textwrap.dedent(
+                """
+                [source]
+                ra = 83.632
+                dec = 22.0145
+                name = "Crab Nebula"
 
-    with pytest.raises(ValueError, match="Unsupported data levels"):
-        create_data_links(stats, tmp_path, ("dl3",))
+                [zenith_binning]
+                edges_deg = [0.0, 20.0]
+
+                [data_filter.cuts]
+                first_date = 20220101
+                last_date = 20221231
+
+                [dl1]
+                enabled = false
+                """
+            )
+        )
+        empty_selection = RunSelection(
+            edges=(0.0, 20.0),
+            selected=pd.DataFrame({"run_number": [], "date": [], "zenith_bin": []}),
+        )
+        monkeypatch.setattr(init_lstana, "select_runs", lambda raw_config: empty_selection)
+        monkeypatch.setattr(init_lstana, "save_datacheck_outputs", lambda *args: None)
+        produced = []
+        disabled_producer = SimpleNamespace(
+            config=SimpleNamespace(enabled=False),
+            produce=lambda selection: produced.append(1),
+        )
+        monkeypatch.setattr(
+            init_lstana, "make_producers", lambda pipeline_config, raw_config, output_root: [disabled_producer]
+        )
+        monkeypatch.setattr("sys.argv", ["init_lstana", str(config_path), "-o", str(tmp_path / "out")])
+
+        init_lstana.main()
+
+        assert produced == []
+        assert "Selected 0 runs" in capsys.readouterr().out

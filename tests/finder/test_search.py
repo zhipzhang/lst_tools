@@ -3,7 +3,7 @@ from unittest.mock import patch
 
 import pytest
 
-from lst_tools.finder.search import find_laplama_files
+from lst_tools.finder.search import find_la_palma_files
 from lst_tools.finder.search_results import (
     DL1LevelSearchResult,
     DL2LevelSearchResult,
@@ -29,11 +29,11 @@ DL3_NEW_B = (
 
 
 @patch("lst_tools.finder.search.glob.glob")
-def test_find_laplama_files_dl1_returns_newest_single_file(mock_glob):
-    # LAPLAMA_DATA_PATHS order: onsite first, then aswg
+def test_find_la_palma_files_dl1_returns_newest_single_file(mock_glob):
+    # LA_PALMA_DATA_PATHS order: onsite first, then aswg
     mock_glob.side_effect = [[DL1_NEW], [DL1_OLD]]
 
-    result = find_laplama_files(20250323, 20463, level="dl1")
+    result = find_la_palma_files(20250323, 20463, level="dl1")
 
     assert isinstance(result, DL1LevelSearchResult)
     assert len(result) == 2
@@ -41,7 +41,7 @@ def test_find_laplama_files_dl1_returns_newest_single_file(mock_glob):
 
 
 @patch("lst_tools.finder.search.glob.glob")
-def test_find_laplama_files_dl2_returns_newest_single_file(mock_glob):
+def test_find_la_palma_files_dl2_returns_newest_single_file(mock_glob):
     dl2_old = DL1_OLD.replace("/DL1/", "/DL2/").replace("dl1_LST-1", "dl2_LST-1").replace(
         "tailcut1005/", "tailcut1005/nsb_tuning_0.38/"
     )
@@ -50,17 +50,17 @@ def test_find_laplama_files_dl2_returns_newest_single_file(mock_glob):
     )
     mock_glob.side_effect = [[dl2_new], [dl2_old]]
 
-    result = find_laplama_files(20250323, 20463, level="dl2")
+    result = find_la_palma_files(20250323, 20463, level="dl2")
 
     assert isinstance(result, DL2LevelSearchResult)
     assert result.newest_attributes.path == Path(dl2_new)
 
 
 @patch("lst_tools.finder.search.glob.glob")
-def test_find_laplama_files_dl3_returns_list_of_newest_version(mock_glob):
+def test_find_la_palma_files_dl3_returns_list_of_newest_version(mock_glob):
     mock_glob.side_effect = [[DL3_NEW_A, DL3_NEW_B], [DL3_OLD]]
 
-    result = find_laplama_files(20230821, 14083, level="dl3")
+    result = find_la_palma_files(20230821, 14083, level="dl3")
 
     assert isinstance(result, DL3LevelSearchResult)
     newest = result.newest_attributes
@@ -68,17 +68,17 @@ def test_find_laplama_files_dl3_returns_list_of_newest_version(mock_glob):
 
 
 @patch("lst_tools.finder.search.glob.glob")
-def test_find_laplama_files_no_match_warns_and_returns_empty(mock_glob):
+def test_find_la_palma_files_no_match_warns_and_returns_empty(mock_glob):
     mock_glob.return_value = []
 
     with pytest.warns(UserWarning, match="No file found"):
-        result = find_laplama_files(20250323, 99999, level="dl1")
+        result = find_la_palma_files(20250323, 99999, level="dl1")
 
     assert isinstance(result, DL1LevelSearchResult)
     assert len(result) == 0
     assert result.newest_attributes is None
 
 
-def test_find_laplama_files_invalid_level():
+def test_find_la_palma_files_invalid_level():
     with pytest.raises(ValueError, match="Invalid level"):
-        find_laplama_files(20250323, 20463, level="dl0")
+        find_la_palma_files(20250323, 20463, level="dl0")

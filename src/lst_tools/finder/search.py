@@ -11,7 +11,7 @@ from .search_results import (
     DL3LevelSearchResult,
 )
 
-LAPLAMA_DATA_PATHS = ("/fefs/onsite/data/lst-pipe/LSTN-01", "/fefs/aswg/data/real")
+LA_PALMA_DATA_PATHS = ("/fefs/onsite/data/lst-pipe/LSTN-01", "/fefs/aswg/data/real")
 
 VALID_LEVELS = ("DL1", "DL2", "DL3")
 
@@ -21,12 +21,12 @@ def _glob_run_files(date: int, run_number: int, level: str) -> list[str]:
     file_name = f"{level.lower()}_LST-1.Run{run_number:05d}.{ext}"
 
     matched_files = []
-    for base_path in LAPLAMA_DATA_PATHS:
+    for base_path in LA_PALMA_DATA_PATHS:
         matched_files.extend(glob.glob(f"{base_path}/{level}/{date}/**/{file_name}", recursive=True))
     return sorted(matched_files)
 
 
-def find_laplama_files(
+def find_la_palma_files(
     date: int, run_number: int, level: str = "dl1"
 ) -> DL1LevelSearchResult | DL2LevelSearchResult | DL3LevelSearchResult:
     """Search the La Palma server for existing files of one run.
@@ -44,7 +44,7 @@ def find_laplama_files(
 
     if len(matched_files) == 0:
         warnings.warn(
-            f"No file found for {level}_LST-1.Run{run_number:05d} under any of {LAPLAMA_DATA_PATHS}",
+            f"No file found for {level}_LST-1.Run{run_number:05d} under any of {LA_PALMA_DATA_PATHS}",
             stacklevel=2,
         )
 

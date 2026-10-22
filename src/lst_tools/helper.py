@@ -1,5 +1,5 @@
 import glob
-from typing import Iterable
+from collections.abc import Iterable
 
 
 def glob_files(path: str | Iterable[str], pattern: str) -> list[str]:
@@ -166,17 +166,17 @@ def plot_histogram(
 
 def find_lst_data_path(date: int, run_number: int, level="dl1"):
     """
-    Deprecated: use ``lst_tools.finder.find_laplama_files`` instead.
+    Deprecated: use ``lst_tools.finder.find_la_palma_files`` instead.
 
     Kept for backward compatibility: returns a single path for DL1/DL2
     (``None`` if not found) and a list of paths for DL3.
     """
     import warnings
 
-    from .finder.search import LAPLAMA_DATA_PATHS, _glob_run_files
+    from .finder.search import LA_PALMA_DATA_PATHS, _glob_run_files
 
     warnings.warn(
-        "find_lst_data_path is deprecated, use lst_tools.finder.find_laplama_files instead",
+        "find_lst_data_path is deprecated, use lst_tools.finder.find_la_palma_files instead",
         DeprecationWarning,
         stacklevel=2,
     )
@@ -189,7 +189,7 @@ def find_lst_data_path(date: int, run_number: int, level="dl1"):
 
     if len(matched_files) == 0:
         warnings.warn(
-            f"No file found for {level}_LST-1.Run{run_number:05d} under any of {LAPLAMA_DATA_PATHS}",
+            f"No file found for {level}_LST-1.Run{run_number:05d} under any of {LA_PALMA_DATA_PATHS}",
             stacklevel=2,
         )
         return None if level != "DL3" else []
@@ -216,7 +216,7 @@ def find_lst_subrun_files(date: int, run_number: int, level="dl1") -> list[str]:
     """
     import warnings
 
-    from .finder.search import LAPLAMA_DATA_PATHS
+    from .finder.search import LA_PALMA_DATA_PATHS
 
     level = level.upper()
     if level not in ["DL1", "DL2"]:
@@ -226,13 +226,13 @@ def find_lst_subrun_files(date: int, run_number: int, level="dl1") -> list[str]:
     pattern = f"{level.lower()}_LST-1.Run{run_number:05d}.????.h5"
 
     matched_files = []
-    for path in LAPLAMA_DATA_PATHS:
+    for path in LA_PALMA_DATA_PATHS:
         prefix_path = f"{path}/{level}/{date}"
         matched_files.extend(glob.glob(f"{prefix_path}/**/{pattern}", recursive=True))
 
     if len(matched_files) == 0:
         warnings.warn(
-            f"No subrun files found for Run{run_number:05d} under any of {LAPLAMA_DATA_PATHS}",
+            f"No subrun files found for Run{run_number:05d} under any of {LA_PALMA_DATA_PATHS}",
             stacklevel=2,
         )
 

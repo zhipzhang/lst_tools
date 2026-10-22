@@ -1,47 +1,83 @@
-# Example for lst_tools configuration file
-# We use TOML format.
+# Example configuration for init_lstana
+#
+# Every data level from DL1 onward has a section with a source mode:
+#   source = "link"   place files the standard pipeline already produced on
+#                     La Palma, grouped into our zenith-bin tree
+#   source = "build"  produce the level ourselves with [dlX.build] options
+# A level with enabled = false (or no section at all) is skipped.
+# Options of the inactive mode are ignored with a warning, so both blocks
+# may be kept while switching source during testing.
 
 [source]
+name = "Crab Nebula"
 ra = 83.632
 dec = 22.0145
-name = "Crab Nebula"
 
-# Runs are grouped into left-closed bins, with the final upper edge included.
+# Stage 1: run selection. Runs passing the cuts below are grouped into
+# zenith bins (left-closed, the final upper edge is included).
 [zenith_binning]
 edges_deg = [0.0, 20.0, 30.0, 40.0, 50.0, 60.0, 70.0]
 
 [data_filter]
-# advanced cuts means the cuts derived from cosmic ray intensity spectrum and others
-# this could be derived later ?
+# advanced cuts: derived from the cosmic-ray intensity spectrum and others
 with_advanced = false
-[data_filter.cuts]
-min_angle_to_source = 0.3       # deg
-max_angle_to_source = 0.5       # deg
-first_date = 0
-last_date = 20999999
-max_pointing_dec_std = 0.01 # pointing stability
 
-# Stage 4: build our own DL2 from the linked DL1 with these RF models.
-# The directory path must carry the MC group (nsb_tuning_<x>/dec_<NNNN>):
-# the IRF and DL3 stages parse it back from the DL2 provenance.
+[data_filter.cuts]
+min_angle_to_source = 0.3   # deg
+max_angle_to_source = 0.5   # deg
+first_date = 0              # yyyymmdd; nights outside [first_date, last_date]
+last_date = 20999999        # are excluded before the datacheck files load
+max_pointing_dec_std = 0.01 # pointing stability, deg
+
+# Stage 3 (DL1): the external input. Only linking is supported today; it is
+# always enabled because every later stage reads the linked DL1.
+[dl1]
+enabled = true
+source = "link" # only "link" until building DL1 is implemented
+
+#[dl1.link]
+#output_directory = "/data/my/dl1"   # default: <output>/dl1
+
+# Stage 4 (DL2): reconstruct our own DL2 from the linked DL1, or link the
+# official DL2 products instead.
 [dl2]
-rf_directory = "/fefs/aswg/data/models/AllSky/.../nsb_tuning_0.24/dec_347"
+enabled = true
+source = "build" # "build" | "link"
+
+[dl2.build]
+# RF model directory template, not necessarily a real path: $NSB_LEVEL is a
+# placeholder, substituted per run at build time with the run's NSB level
+# (from its DL1 file) — the NSB level is a per-night property, so no single
+# real directory can be named here. The declination line stays literal.
+rf_directory = "/fefs/aswg/data/models/AllSky/nsb_tuning_$NSB_LEVEL/dec_347"
 overwrite = false
 
-# Event selection shared by IRF generation and DL3 reduction. The DL3
-# reduction takes its quality filters from here and the gammaness cut from
-# the IRF itself, so data and IRFs can never disagree. Give exactly one of
-# gh_cut (fixed threshold) or gh_efficiency (energy-dependent quantile cuts).
-[irf]
-intensity_cut = 80
-leakage_cut = 1.0
-gh_efficiency = 0.7
+#[dl2.link]
+#output_directory = "/data/linked/dl2"   # default: <output>/dl2
 
-# Reduce our DL2 to DL3 observations, interpolating the IRFs of each run's
-# MC group (nsb_<nsb>/dec_<line> under irf_directory) to the run's pointing.
+# Stage 5+6 (DL3): reduce our DL2 to DL3 observations with IRFs generated
+# from the MC test dataset matching each DL2 file's provenance, or link
+# existing DL3 products instead.
 [dl3]
 enabled = true
-# irf_directory = "/path/to/irfs"   # default: <output>/irfs
+source = "build" # "build" | "link"
+
+[dl3.build]
+#irf_directory = "/path/to/irfs"   # default: <output>/irfs
 interp_method = "linear"
 use_nearest_irf_node = false
 overwrite = false
+
+# Event selection shared by IRF generation and DL3 reduction: the reduction
+# takes its quality filters from here and the gammaness cut from the IRF
+# itself, so data and IRFs can never disagree. Exactly one of gh_cut (fixed
+# threshold) or gh_efficiency (energy-dependent quantile cuts) must be given.
+[dl3.build.irf]
+intensity_cut = 80
+leakage_cut = 1.0
+gh_efficiency = 0.7
+#gh_cut = 0.7                   # alternative to gh_efficiency
+
+#[dl3.link]
+#output_directory = "/data/linked/dl3"   # default: <output>/dl3
+#irf_type = "full-enclosure"     # or "point"; omit to link both

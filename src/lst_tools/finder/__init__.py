@@ -4,13 +4,13 @@ Here we wrapper those functions in here, to provide a convenient interface for s
 
 The supported search includes:
     - use date range to filter the datacheck file, so that we don't need to load all files
-    - use `find_laplama_files` to search files already produced on the La Palma server
+    - use `find_la_palma_files` to search files already produced on the La Palma server
     - use `DataLevelSearchResult` to return the search results for different data levels
 """
 
 from .datalevel_attributes import DLAttributes, NSBLevel
 from .helper import parse_dl1_path, parse_dl2_path, parse_dl3_path
-from .search import LAPLAMA_DATA_PATHS, find_laplama_files
+from .search import LA_PALMA_DATA_PATHS, find_la_palma_files
 from .search_results import (
     DataLevelSearchResult,
     DL1LevelSearchResult,
@@ -19,18 +19,15 @@ from .search_results import (
 )
 
 __all__ = [
-    "DATA_PATH",
-    "LAPLAMA_DATA_PATHS",
+    "LA_PALMA_DATA_PATHS",
     "DL1LevelSearchResult",
     "DL2LevelSearchResult",
     "DL3LevelSearchResult",
     "DLAttributes",
     "DataLevelSearchResult",
     "NSBLevel",
-    "find_laplama_files",
+    "find_la_palma_files",
     "parse_dl1_path",
     "parse_dl2_path",
     "parse_dl3_path",
 ]
-
-DATA_PATH = LAPLAMA_DATA_PATHS
