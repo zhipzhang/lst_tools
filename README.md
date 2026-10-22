@@ -13,78 +13,82 @@ conda activate lst_tools
 pip install -e .[dev]
 ```
 
-## Development
+## Loading DataCheck statistics
 
-```bash
-pytest        # run tests
-ruff check .  # lint
+The nightly LST-1 DataCheck HDF5 files can be loaded and reduced to
+run-wise statistics directly:
+
+```python
+from lst_tools.datacheck import DataCheckTables
+
+tables = DataCheckTables.from_files(["/path/to/DL1_datacheck_20240101.h5"])
+statistics = tables.statistics          # one row per run
+
+# keep a subset of runs and write a new datacheck file
+tables.select_runs([14083, 14084]).save_to_h5file("selected.h5", overwrite=True)
 ```
 
-## Run the analysis pipeline
+Quality cuts are applied with `DataFilter`:
 
-Edit `config/config.toml` to set the source, quality cuts, zenith-angle
-edges, and the RF models. Then run:
+```python
+from lst_tools.datacheck import DataFilter
+
+data_filter = DataFilter(
+    source_ra=83.632,
+    source_dec=22.0145,
+    min_angle_to_source=0.3,
+    max_angle_to_source=0.5,
+    max_pointing_dec_std=0.01,
+)
+after_basic = data_filter.apply_basic_cuts(statistics)
+selected = data_filter.apply_advanced_cuts(after_basic)
+```
+
+## Running the analysis pipeline: `init-lstana`
+
+Edit `config/config.toml` (the source, zenith binning, quality cuts, and
+one section per data level), then run:
 
 ```bash
 init-lstana config/config.toml --output /path/to/analysis
 ```
 
-The command runs a six-stage pipeline; everything from DL2 onward is
-produced by the pipeline itself:
+Every data level has two possible origins, selected by a `source` key:
+
+- `source = "link"` — place the files the standard pipeline already
+  produced on La Palma into the workspace zenith-bin tree.
+- `source = "build"` — produce the level ourselves.
+
+The stages:
 
 1. **Select runs** — nightly DataCheck statistics filtered by the
-   `[data_filter]` cuts, grouped into the `[zenith_binning]` bins.
-2. **Data check** — the selected tables and cut diagnostics in
-   `data_check/`.
-3. **Link DL1** — idempotent symlinks of the selected runs into
-   `dl1/<zd_bin>/`.
-4. **Build DL2** (`[dl2]` section) — our own reconstruction of the linked
-   DL1 with the configured `rf_directory` RF models into `dl2/<zd_bin>/`.
-5. **Build IRFs** (`[irf]` section) — one IRF per MC node of each run's MC
-   group in `irfs/nsb_<nsb>/dec_<line>/`, located from the DL2 provenance.
-6. **Reduce to DL3** (`[dl3] enabled = true`) — one DL3 FITS observation
-   per run in `dl3/<zd_bin>/`.
+   `[data_filter]` cuts (and the `[source]` position), grouped into the
+   `[zenith_binning]` bins. The selected tables and advanced-cut
+   diagnostics are saved under `data_check/`.
+2. **DL1** (`[dl1]`) — the external input; linking is the only supported
+   mode today (`dl1/<zd_bin>/`).
+3. **DL2** (`[dl2]`) — either link the official DL2, or build our own by
+   reconstructing the linked DL1 with the RF models of
+   `[dl2.build] rf_directory` (a template: `$NSB_LEVEL` is substituted
+   per run from its DL1 file).
+4. **DL3** (`[dl3]`) — either link existing DL3 products (newest
+   version, optionally narrowed by `[dl3.link] irf_type`), or build them:
+   IRFs are generated from the MC test dataset matching each DL2 file's
+   provenance (`[dl3.build.irf]`), then every run is reduced to a DL3
+   FITS observation, interpolating the IRFs to the run's pointing.
 
-```text
-analysis/
-├── data_check/
-├── dl1/<zd_bin>/          # linked inputs
-├── dl2/<zd_bin>/          # built by stage 4
-├── irfs/nsb_<nsb>/dec_<line>/   # built by stage 5
-└── dl3/<zd_bin>/          # written by stage 6
-```
+The event selection for built DL3 comes from `[dl3.build.irf]`: the
+quality filters (`intensity_cut`, `leakage_cut`) are passed to the
+reduction and the gammaness cut (`gh_cut` or `gh_efficiency`) is carried
+inside the IRFs, so data and IRFs always agree.
 
-Bins include their lower edge and exclude their upper edge; the last bin
-also includes its upper edge. Reruns are incremental: existing links are
-kept, existing DL2/IRF/DL3 files are reused (an IRF is regenerated when the
-`[irf]` config changed), and conflicting files are never replaced. Each
-stage has an `overwrite` option to force rebuilding.
+Zenith bins include their lower edge and exclude their upper edge; the
+last bin also includes its upper edge. Reruns are incremental: existing
+links are kept, existing files are reused, and conflicting files are
+never replaced (each level has an `overwrite` option for its build mode).
+See the comments in `config/config.toml` for every option.
 
-The DL3 reduction uses lstchain's `lstchain_create_dl3_file` machinery,
-interpolating the IRFs of each run's MC group to the run's pointing. The
-event selection comes from the `[irf]` section: the quality filters
-(`intensity_cut`, `leakage_cut`) are passed to the reduction, and the
-gammaness cut (`gh_cut` or `gh_efficiency`) is carried inside the IRFs
-themselves, so data and IRFs always agree. For DL3, IRFs are looked up
-under `<output>/irfs` unless `[dl3] irf_directory` overrides it — useful to
-reduce against IRFs generated outside this workspace (stage 5 skipped).
-
-## DataCheck statistics
-
-Load DataCheck tables and calculate run-wise statistics directly:
-
-```python
-from lst_tools.datacheck import DataCheckTables
-
-tables = DataCheckTables.from_files(["/path/to/data_check.h5"])
-statistics = tables.statistics
-```
-
-## Prepare catalog-separated off runs
-
-Apply the configured basic and advanced quality cuts, ignore the configured
-target-angle range, and reject pointings near HESS, LHAASO, and HAWC catalog
-sources:
+## Preparing catalog-separated off runs: `prepare-offruns`
 
 ```bash
 prepare-offruns config/config.toml \
@@ -95,13 +99,24 @@ prepare-offruns config/config.toml \
   --extension-factor 2.5
 ```
 
-This always creates `data_check/DL1_datacheck_offruns.h5`. Pass `--with-dl1`
-(`--with-dl` is an alias) and/or `--with-dl2` to create idempotent links under
-`dl1/` and/or `dl2/`. When neither option is given, no data links are created.
+Applies the configured basic and advanced quality cuts with the
+target-angle range disabled, then rejects pointings near HESS, LHAASO,
+and HAWC catalog sources. Always writes
+`data_check/DL1_datacheck_offruns.h5`; `--with-dl1` (`--with-dl` is an
+alias) and `--with-dl2` additionally create idempotent data links under
+`dl1/` and `dl2/`.
+
+## Development
+
+```bash
+pytest        # run tests
+ruff check .  # lint
+```
 
 ## Layout
 
 ```
-src/lst_tools/   # package source
+src/lst_tools/     # package source
+config/config.toml # annotated example pipeline configuration
 tests/             # test suite
 ```

@@ -84,6 +84,8 @@ Thumbs.db
 data/
 outputs/
 *.fits
+docs/_build/
+docs/_autosummary/
 
 # Agent working documents (not part of the project)
 agent_doc/
