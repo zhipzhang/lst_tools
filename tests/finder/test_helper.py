@@ -2,6 +2,7 @@ import pytest
 
 from lst_tools.finder import NSBLevel
 from lst_tools.finder.helper import (
+    filter_date,
     parse_dl3_path,
     parse_gh_eff,
     parse_lstchain_version,
@@ -10,6 +11,37 @@ from lst_tools.finder.helper import (
     parse_tailcuts_level,
     parse_theta_containment,
 )
+
+
+def test_filter_date():
+    files = [
+        "DL1_datacheck_20220425.h5",
+        "DL1_datacheck_20220426.h5",
+        "DL1_datacheck_20220427.h5",
+        "DL1_datacheck_20220428.h5",
+    ]
+    assert filter_date(files, 20220426, 20220427) == [
+        "DL1_datacheck_20220426.h5",
+        "DL1_datacheck_20220427.h5",
+    ]
+
+
+def test_filter_date_no_match():
+    files = ["DL1_datacheck_20220426.h5"]
+    assert filter_date(files, 20230101, 20231231) == []
+
+
+def test_filter_date_ignores_date_in_directory():
+    files = [
+        "/data/20230101/DL1_datacheck_20220426.h5",
+        "/data/20230101/DL1_datacheck_20230102.h5",
+    ]
+    assert filter_date(files, 20230101, 20230131) == ["/data/20230101/DL1_datacheck_20230102.h5"]
+
+
+def test_filter_date_drops_files_without_date():
+    files = ["DL1_datacheck_20220426.h5", "dl1_LST-1.Run10623.h5"]
+    assert filter_date(files, 20220101, 20230101) == ["DL1_datacheck_20220426.h5"]
 
 
 def test_parse_run_id():

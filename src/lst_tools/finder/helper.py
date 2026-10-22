@@ -11,6 +11,23 @@ from lstchain.image.cleaning import find_tailcuts
 from .datalevel_attributes import DL1Attributes, DL2Attributes, DL3Attributes, NSBLevel
 
 
+def filter_date(files: list[str], start_date: int, end_date: int) -> list[str]:
+    """
+    date is like 20260101
+    files is like  DL1_datacheck_20220426.h5
+
+    Only files whose date is within [start_date, end_date] (inclusive) are
+    returned; files without a date are dropped.
+    """
+    date_pattern = re.compile(r"(\d{8})")
+    filtered = []
+    for path in files:
+        match = date_pattern.search(Path(path).name)
+        if match is not None and start_date <= int(match.group(1)) <= end_date:
+            filtered.append(path)
+    return filtered
+
+
 def parse_run_id(path: str) -> int:
     match = re.search(r"Run(\d+)", path)
     if match is None:
