@@ -3,6 +3,7 @@
 import json
 from dataclasses import dataclass, field
 from pathlib import Path
+from typing import Literal
 
 from lstchain.io.event_selection import DataBinning
 
@@ -42,6 +43,10 @@ class IRFConfig:
     event_filter: EventFilter
     data_binning: DataBinning = field(default_factory=_default_data_binning)
     point_like: bool = False
+
+    @property
+    def irf_type(self) -> Literal["full-enclosure", "point"]:
+        return "point" if self.point_like else "full-enclosure"
 
     def to_lstchain_config(self) -> dict:
         """Serialize to the full config dict of ``lstchain_create_irf_files``."""

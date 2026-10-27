@@ -124,6 +124,7 @@ class TestDL3Config:
                         "leakage_cut": 1.0,
                         "gh_efficiency": 0.7,
                         "point_like": True,
+                        "mc_dl2_directory": "custom_nsb_$NSB_LEVEL",
                     },
                 },
             }
@@ -134,6 +135,7 @@ class TestDL3Config:
         assert config.build.overwrite is True
         assert config.build.irf_directory is None
         assert config.build.point_like is True
+        assert config.build.mc_dl2_directory == "custom_nsb_$NSB_LEVEL"
         assert isinstance(config.build.event_filter, EventFilter)
 
     def test_build_irf_defaults_to_full_enclosure(self):
@@ -144,6 +146,7 @@ class TestDL3Config:
             }
         )
         assert config.build.point_like is False
+        assert config.build.mc_dl2_directory == "20250212_v0.10.17_allsky_interp_dl2_irfs_nsb_$NSB_LEVEL"
 
     def test_irf_section_requires_intensity_and_leakage(self):
         with pytest.raises(ConfigError, match="missing required key"):

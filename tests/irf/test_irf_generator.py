@@ -38,7 +38,7 @@ def test_make_irf_node_writes_irf_config_and_log_alongside(tmp_path, node, run_i
 
     irf_file = generator.make_irf_node(node)
 
-    assert irf_file == (tmp_path / "irfs/nsb_0.81/dec_2276/theta_10_az_20.irf.fits.gz").resolve()
+    assert irf_file == (tmp_path / "irfs/nsb_0.81/dec_2276/full-enclosure/theta_10_az_20.irf.fits.gz").resolve()
     assert irf_file.is_file()
 
     config_file = irf_file.parent / "theta_10_az_20.config.json"

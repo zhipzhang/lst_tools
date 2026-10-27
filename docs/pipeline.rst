@@ -34,6 +34,15 @@ Stages
    (``[dl3.build.irf]``), then every run is reduced to a DL3 FITS
    observation, interpolating the IRFs to the run's pointing.
 
+The MC campaign is selected by ``[dl3.build.irf] mc_dl2_directory``. This is
+a directory template: ``$NSB_LEVEL`` is replaced independently for every DL2
+file using its provenance. Relative paths resolve below
+``/fefs/aswg/data/mc/DL2/AllSky``; absolute paths are also accepted. The
+finder recursively reads the campaign's ``TestingDataset`` directories and
+selects the matching declination line. With ``point_like = true`` it uses
+``Gamma`` and writes point-like IRFs; otherwise it uses ``GammaDiffuse`` and
+writes full-enclosure IRFs.
+
 The event selection for built DL3 comes from ``[dl3.build.irf]``: the
 quality filters (``intensity_cut``, ``leakage_cut``) are passed to the
 reduction and the gammaness cut (``gh_cut`` or ``gh_efficiency``) is carried
@@ -49,7 +58,13 @@ Workspace layout
    ├── dl1/<zd_bin>/     # linked input (stage 2)
    ├── dl2/<zd_bin>/     # linked or built (stage 3)
    ├── irfs/             # built during the DL3 build
+   │   └── nsb_<nsb>/dec_<line>/<irf_type>/
+   │       └── theta_<zenith>_az_<azimuth>.irf.fits.gz
    └── dl3/<zd_bin>/     # linked or built (stage 4)
+
+Here ``<irf_type>`` is explicitly ``point`` or ``full-enclosure``. The DL3
+reduction reads the same type-specific directory, so the two kinds of IRFs
+cannot overwrite each other or be mixed in one interpolation set.
 
 Zenith bins include their lower edge and exclude their upper edge; the last
 bin also includes its upper edge. Reruns are incremental: existing links are
@@ -83,9 +98,11 @@ shape is one section per level, with the mode-specific options in
    overwrite = false
 
    [dl3.build.irf]
+   mc_dl2_directory = "20250212_v0.10.17_allsky_interp_dl2_irfs_nsb_$NSB_LEVEL"
    intensity_cut = 80
    leakage_cut = 1.0
    gh_efficiency = 0.7    # or gh_cut = 0.7 for a fixed threshold
+   point_like = false     # true: point/Gamma; false: full-enclosure/GammaDiffuse
 
 Options of the inactive mode are ignored with a warning, so both blocks may
 be kept while switching ``source`` during testing. A level with

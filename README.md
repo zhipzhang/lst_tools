@@ -77,10 +77,18 @@ The stages:
    provenance (`[dl3.build.irf]`), then every run is reduced to a DL3
    FITS observation, interpolating the IRFs to the run's pointing.
 
+The MC campaign comes from `[dl3.build.irf] mc_dl2_directory`, a template
+whose `$NSB_LEVEL` is replaced from each DL2 file's provenance. Relative
+paths resolve below `/fefs/aswg/data/mc/DL2/AllSky`; absolute paths are also
+accepted. `point_like = true` selects `Gamma` MC and point-like IRFs, while
+the default `false` selects `GammaDiffuse` and full-enclosure IRFs.
+
 The event selection for built DL3 comes from `[dl3.build.irf]`: the
 quality filters (`intensity_cut`, `leakage_cut`) are passed to the
 reduction and the gammaness cut (`gh_cut` or `gh_efficiency`) is carried
-inside the IRFs, so data and IRFs always agree.
+inside the IRFs, so data and IRFs always agree. Generated IRFs are stored
+under `irfs/nsb_<nsb>/dec_<line>/<irf_type>/`, with `<irf_type>` explicitly
+set to `point` or `full-enclosure`.
 
 Zenith bins include their lower edge and exclude their upper edge; the
 last bin also includes its upper edge. Reruns are incremental: existing

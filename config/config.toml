@@ -73,6 +73,9 @@ overwrite = false
 # itself, so data and IRFs can never disagree. Exactly one of gh_cut (fixed
 # threshold) or gh_efficiency (energy-dependent quantile cuts) must be given.
 [dl3.build.irf]
+# Relative to /fefs/aswg/data/mc/DL2/AllSky; absolute paths are also accepted.
+# $NSB_LEVEL is replaced from each real DL2 file's provenance.
+mc_dl2_directory = "20250212_v0.10.17_allsky_interp_dl2_irfs_nsb_$NSB_LEVEL"
 intensity_cut = 80
 leakage_cut = 1.0
 gh_efficiency = 0.7

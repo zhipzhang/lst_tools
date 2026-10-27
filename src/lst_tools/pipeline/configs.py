@@ -213,6 +213,7 @@ class DL3BuildOptions:
     overwrite: bool = False
     event_filter: EventFilter | None = None  # from [dl3.build.irf]
     point_like: bool = False
+    mc_dl2_directory: str = "20250212_v0.10.17_allsky_interp_dl2_irfs_nsb_$NSB_LEVEL"
 
     @classmethod
     def parse(cls, section: dict) -> Self:
@@ -229,7 +230,7 @@ class DL3BuildOptions:
         irf_section = section["irf"]
         _unknown_keys(
             irf_section,
-            {"intensity_cut", "leakage_cut", "gh_cut", "gh_efficiency", "point_like"},
+            {"intensity_cut", "leakage_cut", "gh_cut", "gh_efficiency", "point_like", "mc_dl2_directory"},
             "dl3.build.irf",
         )
         try:
@@ -251,6 +252,9 @@ class DL3BuildOptions:
             overwrite=section.get("overwrite", False),
             event_filter=event_filter,
             point_like=irf_section.get("point_like", False),
+            mc_dl2_directory=irf_section.get(
+                "mc_dl2_directory", "20250212_v0.10.17_allsky_interp_dl2_irfs_nsb_$NSB_LEVEL"
+            ),
         )
 
 
