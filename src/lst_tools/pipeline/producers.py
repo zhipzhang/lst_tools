@@ -286,7 +286,7 @@ class DL3Producer(DLProducer):
         # One IRF per MC node, deduplicated across DL2 files of the same group.
         nodes: dict[Path, IRFNode] = {}
         for dl2_file in sorted(self.dl2_directory.glob("*/*.h5")):
-            for node in find_irf_nodes(LSTDL2EventTable(dl2_file)):
+            for node in find_irf_nodes(LSTDL2EventTable(dl2_file), diffuse=not build_options.point_like):
                 nodes.setdefault(node.relative_path, node)
         for node in nodes.values():
             generator.make_irf_node(node)

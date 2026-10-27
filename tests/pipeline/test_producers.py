@@ -400,6 +400,11 @@ class TestDL3Producer:
         made_nodes = []
         reductions = []
         generator_bases = []
+        diffuse_modes = []
+
+        def fake_find_irf_nodes(table, *, diffuse=True):
+            diffuse_modes.append(diffuse)
+            return [node]
 
         class FakeIRFGenerator:
             def __init__(self, base_path, irf_config):
@@ -419,10 +424,10 @@ class TestDL3Producer:
                 return [dl2_file.with_suffix(".fits") for dl2_file in dl2_files]
 
         monkeypatch.setattr(producers_module, "LSTDL2EventTable", lambda path: object())
-        monkeypatch.setattr(producers_module, "find_irf_nodes", lambda table: [node])
+        monkeypatch.setattr(producers_module, "find_irf_nodes", fake_find_irf_nodes)
         monkeypatch.setattr(producers_module, "IRFGenerator", FakeIRFGenerator)
         monkeypatch.setattr(producers_module, "DL3Reducer", FakeDL3Reducer)
-        return made_nodes, reductions, generator_bases
+        return made_nodes, reductions, generator_bases, diffuse_modes
 
     @staticmethod
     def _build_config(**overrides):
@@ -436,7 +441,7 @@ class TestDL3Producer:
 
     def test_build_generates_irfs_and_reduces_per_bin(self, tmp_path, monkeypatch):
         dl2_files = self._make_dl2_tree(tmp_path, 10623, 10624)
-        made_nodes, reductions, generator_bases = self._fake_irf_and_reduction(monkeypatch)
+        made_nodes, reductions, generator_bases, diffuse_modes = self._fake_irf_and_reduction(monkeypatch)
         producer = DL3Producer(
             self._build_config(),
             tmp_path / "out",
@@ -452,10 +457,11 @@ class TestDL3Producer:
         assert counts["dl3:failed"] == 0
         assert generator_bases == [tmp_path / "out" / "irfs"]
         assert reductions == [(dl2_files, tmp_path / "out" / "dl3" / "zd_20_30")]
+        assert diffuse_modes == [True, True]
 
     def test_build_uses_configured_irf_directory(self, tmp_path, monkeypatch):
         self._make_dl2_tree(tmp_path, 10623)
-        _, reductions, generator_bases = self._fake_irf_and_reduction(monkeypatch)
+        _, reductions, generator_bases, _ = self._fake_irf_and_reduction(monkeypatch)
         config = self._build_config(irf_directory=tmp_path / "my_irfs")
         producer = DL3Producer(config, tmp_path / "out", source=SourceConfig(name="Crab", ra=83.6, dec=22.0))
 
@@ -464,9 +470,9 @@ class TestDL3Producer:
         assert generator_bases == [tmp_path / "my_irfs"]
         assert len(reductions) == 1
 
-    def test_build_forwards_point_like_to_irf_config(self, tmp_path, monkeypatch):
+    def test_build_configures_point_like_irf_generation(self, tmp_path, monkeypatch):
         self._make_dl2_tree(tmp_path, 10623)
-        self._fake_irf_and_reduction(monkeypatch)
+        _, _, _, diffuse_modes = self._fake_irf_and_reduction(monkeypatch)
         irf_configs = []
         real_irf_config = producers_module.IRFConfig
 
@@ -485,6 +491,7 @@ class TestDL3Producer:
         producer.produce(make_selection([RUN_10623]))
 
         assert [config.point_like for config in irf_configs] == [True]
+        assert diffuse_modes == [False]
 
     def test_build_requires_source(self, tmp_path, monkeypatch):
         self._make_dl2_tree(tmp_path, 10623)
