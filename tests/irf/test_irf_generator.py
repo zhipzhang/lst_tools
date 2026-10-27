@@ -46,7 +46,7 @@ def test_make_irf_node_writes_irf_config_and_log_alongside(tmp_path, node, run_i
         config = json.load(file_handle)
     assert config["EventSelector"]["filters"]["intensity"] == [80.0, float("inf")]
     assert config["DL3Cuts"]["global_gh_cut"] == pytest.approx(0.5)
-    assert config["IRFFITSWriter"] == {"energy_dependent_gh": False}
+    assert config["IRFFITSWriter"] == {"energy_dependent_gh": False, "point_like": False}
     assert "DataBinning" in config
 
     command = run_irf[0]
@@ -75,6 +75,16 @@ def test_irf_is_regenerated_when_the_config_changes(tmp_path, node, run_irf):
     assert len(run_irf) == 2
 
 
+def test_irf_is_regenerated_when_point_like_changes(tmp_path, node, run_irf):
+    generator = IRFGenerator(tmp_path / "irfs", fixed_config())
+    generator.make_irf_node(node)
+
+    point_like_config = IRFConfig(event_filter=EventFilter.from_cuts(80, 0.2, gh_cut=0.5), point_like=True)
+    IRFGenerator(tmp_path / "irfs", point_like_config).make_irf_node(node)
+
+    assert len(run_irf) == 2
+
+
 def test_quantile_mode_marks_energy_dependent_gh_in_the_config(tmp_path, node, run_irf):
     irf_config = IRFConfig(event_filter=EventFilter.from_cuts(80, 0.2, gh_efficiency=0.7))
     generator = IRFGenerator(tmp_path / "irfs", irf_config)
@@ -83,8 +93,16 @@ def test_quantile_mode_marks_energy_dependent_gh_in_the_config(tmp_path, node, r
 
     with open(irf_file.parent / "theta_10_az_20.config.json") as file_handle:
         config = json.load(file_handle)
-    assert config["IRFFITSWriter"] == {"energy_dependent_gh": True}
+    assert config["IRFFITSWriter"] == {"energy_dependent_gh": True, "point_like": False}
     assert config["DL3Cuts"]["gh_efficiency"] == pytest.approx(0.7)
+
+
+def test_point_like_mode_marks_irf_type_in_the_config():
+    irf_config = IRFConfig(event_filter=EventFilter.from_cuts(80, 0.2, gh_cut=0.5), point_like=True)
+
+    config = irf_config.to_lstchain_config()
+
+    assert config["IRFFITSWriter"] == {"energy_dependent_gh": False, "point_like": True}
 
 
 def test_raises_when_the_command_produces_no_file(tmp_path, node, monkeypatch):
@@ -112,4 +130,4 @@ def test_default_irf_config_reproduces_default_config_json():
 
     config = IRFConfig(event_filter=EventFilter.from_cuts(50, 1.0, gh_cut=0.7)).to_lstchain_config()
 
-    assert config == {**reference, "IRFFITSWriter": {"energy_dependent_gh": False}}
+    assert config == {**reference, "IRFFITSWriter": {"energy_dependent_gh": False, "point_like": False}}

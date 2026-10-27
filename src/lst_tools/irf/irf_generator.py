@@ -43,8 +43,8 @@ class IRFGenerator:
         """Create the node's IRF if needed and return its FITS file path.
 
         An existing IRF is reused only when it was generated with the same
-        config (event selection, binning, gammaness mode); otherwise it is
-        regenerated.
+        config (event selection, IRF type, binning, gammaness mode); otherwise
+        it is regenerated.
         """
         irf_file = self.irf_file(node)
         config = self.irf_config.to_lstchain_config()

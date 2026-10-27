@@ -119,7 +119,12 @@ class TestDL3Config:
                     "interp_method": "nearest",
                     "use_nearest_irf_node": True,
                     "overwrite": True,
-                    "irf": {"intensity_cut": 80, "leakage_cut": 1.0, "gh_efficiency": 0.7},
+                    "irf": {
+                        "intensity_cut": 80,
+                        "leakage_cut": 1.0,
+                        "gh_efficiency": 0.7,
+                        "point_like": True,
+                    },
                 },
             }
         )
@@ -128,7 +133,17 @@ class TestDL3Config:
         assert config.build.use_nearest_irf_node is True
         assert config.build.overwrite is True
         assert config.build.irf_directory is None
+        assert config.build.point_like is True
         assert isinstance(config.build.event_filter, EventFilter)
+
+    def test_build_irf_defaults_to_full_enclosure(self):
+        config = DL3ProducerConfig.parse(
+            {
+                "source": "build",
+                "build": {"irf": {"intensity_cut": 80, "leakage_cut": 1.0, "gh_efficiency": 0.7}},
+            }
+        )
+        assert config.build.point_like is False
 
     def test_irf_section_requires_intensity_and_leakage(self):
         with pytest.raises(ConfigError, match="missing required key"):

@@ -464,6 +464,28 @@ class TestDL3Producer:
         assert generator_bases == [tmp_path / "my_irfs"]
         assert len(reductions) == 1
 
+    def test_build_forwards_point_like_to_irf_config(self, tmp_path, monkeypatch):
+        self._make_dl2_tree(tmp_path, 10623)
+        self._fake_irf_and_reduction(monkeypatch)
+        irf_configs = []
+        real_irf_config = producers_module.IRFConfig
+
+        def capture_irf_config(*args, **kwargs):
+            config = real_irf_config(*args, **kwargs)
+            irf_configs.append(config)
+            return config
+
+        monkeypatch.setattr(producers_module, "IRFConfig", capture_irf_config)
+        producer = DL3Producer(
+            self._build_config(point_like=True),
+            tmp_path / "out",
+            source=SourceConfig(name="Crab", ra=83.6, dec=22.0),
+        )
+
+        producer.produce(make_selection([RUN_10623]))
+
+        assert [config.point_like for config in irf_configs] == [True]
+
     def test_build_requires_source(self, tmp_path, monkeypatch):
         self._make_dl2_tree(tmp_path, 10623)
         self._fake_irf_and_reduction(monkeypatch)

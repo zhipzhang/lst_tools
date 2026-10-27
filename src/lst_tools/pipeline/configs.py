@@ -212,6 +212,7 @@ class DL3BuildOptions:
     use_nearest_irf_node: bool = False
     overwrite: bool = False
     event_filter: EventFilter | None = None  # from [dl3.build.irf]
+    point_like: bool = False
 
     @classmethod
     def parse(cls, section: dict) -> Self:
@@ -226,7 +227,11 @@ class DL3BuildOptions:
                 " the IRF generation and the DL3 reduction share its event selection"
             )
         irf_section = section["irf"]
-        _unknown_keys(irf_section, {"intensity_cut", "leakage_cut", "gh_cut", "gh_efficiency"}, "dl3.build.irf")
+        _unknown_keys(
+            irf_section,
+            {"intensity_cut", "leakage_cut", "gh_cut", "gh_efficiency", "point_like"},
+            "dl3.build.irf",
+        )
         try:
             event_filter = EventFilter.from_cuts(
                 intensity_cut=irf_section["intensity_cut"],
@@ -245,6 +250,7 @@ class DL3BuildOptions:
             use_nearest_irf_node=section.get("use_nearest_irf_node", False),
             overwrite=section.get("overwrite", False),
             event_filter=event_filter,
+            point_like=irf_section.get("point_like", False),
         )
 
 

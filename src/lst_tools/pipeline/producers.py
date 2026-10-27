@@ -277,7 +277,7 @@ class DL3Producer(DLProducer):
             warnings.warn(f"dl3: no DL2 directory at {self.dl2_directory}; skipping", stacklevel=2)
             return counts
 
-        irf_config = IRFConfig(build_options.event_filter)
+        irf_config = IRFConfig(build_options.event_filter, point_like=build_options.point_like)
         generator = IRFGenerator(
             build_options.irf_directory or self.output_root / "irfs",
             irf_config,
