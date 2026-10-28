@@ -7,12 +7,13 @@ from lst_tools.bkg import Background2DMaker, SkyOffsetEvents
 
 
 @pytest.fixture
-def events():
+def events(observation_frame):
     return SkyOffsetEvents(
         x=[0.5, 1.5, 0.5, 1.5, 3.0] * u.deg,
         y=np.zeros(5) * u.deg,
         energy=[0.2, 0.2, 2.0, 2.0, 2.0] * u.TeV,
         livetime=10 * u.s,
+        frame=observation_frame,
     )
 
 
@@ -83,12 +84,12 @@ def test_call_returns_background_with_gammapy_axes_data_and_unit(maker, events):
     assert background.meta["SPEC_IDX"] == pytest.approx(-2)
 
 
-def test_empty_positive_exposure_produces_zero_background():
+def test_empty_positive_exposure_produces_zero_background(observation_frame):
     maker = Background2DMaker(
         energy_edges=[0.1, 1, 10],
         theta_edges=[0, 1, 2],
     )
-    events = SkyOffsetEvents(livetime=10 * u.s)
+    events = SkyOffsetEvents(livetime=10 * u.s, frame=observation_frame)
 
     np.testing.assert_array_equal(maker.counts(events), np.zeros((2, 2)))
     np.testing.assert_array_equal(maker.differential_rate(events).value, np.zeros((2, 2)))
@@ -105,9 +106,9 @@ def test_maker_initialization_only_normalizes_configuration():
     np.testing.assert_allclose(maker.energy_edges.to_value(u.TeV), [0.1, 1, 10])
 
 
-def test_maker_can_be_reused_for_different_event_samples(maker, events):
+def test_maker_can_be_reused_for_different_event_samples(maker, events, observation_frame):
     populated = maker(events)
-    empty = maker(SkyOffsetEvents(livetime=10 * u.s))
+    empty = maker(SkyOffsetEvents(livetime=10 * u.s, frame=observation_frame))
 
     assert populated.data.sum() > 0
     assert empty.data.sum() == 0
@@ -134,12 +135,11 @@ def test_invalid_configuration_is_rejected(kwargs, message):
         Background2DMaker(**arguments)
 
 
-@pytest.mark.parametrize("events", [object(), SkyOffsetEvents()])
-def test_call_rejects_invalid_events(maker, events):
-    message = "SkyOffsetEvents" if not isinstance(events, SkyOffsetEvents) else "livetime"
-
-    with pytest.raises((TypeError, ValueError), match=message):
-        maker(events)
+def test_call_rejects_invalid_events(maker, observation_frame):
+    with pytest.raises(TypeError, match="SkyOffsetEvents"):
+        maker(object())
+    with pytest.raises(ValueError, match="livetime"):
+        maker(SkyOffsetEvents(frame=observation_frame))
 
 
 def test_returned_background_is_fits_writable(maker, events, tmp_path):

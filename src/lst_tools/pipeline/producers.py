@@ -22,14 +22,15 @@ from lst_tools.dl1.dl1event import LSTDL1Event, dl1_to_dl2_batch
 from lst_tools.dl2 import LSTDL2EventTable
 from lst_tools.dl3 import DL3Reducer
 from lst_tools.finder import (
+    MC_DL2_PATH,
     DL1LevelSearchResult,
     DL2LevelSearchResult,
     DL3LevelSearchResult,
     find_la_palma_files,
+    find_mc_dl2_files,
 )
 from lst_tools.finder.datalevel_attributes import DL3Attributes, DLAttributes
 from lst_tools.irf import IRFConfig, IRFGenerator, IRFNode
-from lst_tools.irf.utils import find_irf_nodes
 
 from .configs import (
     NSB_LEVEL_VARIABLE,
@@ -223,6 +224,37 @@ class DL2Producer(DLProducer):
         return groups
 
 
+def _mc_campaign_directory(directory_template: str, nsb_level: float) -> Path:
+    directory = Path(directory_template.replace(NSB_LEVEL_VARIABLE, f"{nsb_level:g}")).expanduser()
+    return directory if directory.is_absolute() else MC_DL2_PATH / directory
+
+
+def _irf_nodes_for_observation(
+    dl2_table: LSTDL2EventTable,
+    directory_template: str,
+    irf_type: Literal["full-enclosure", "point"],
+) -> list[IRFNode]:
+    if dl2_table.nsb_level is None:
+        raise ValueError("DL2 table does not contain an NSB level")
+    if dl2_table.dec_line is None:
+        raise ValueError("DL2 table does not contain a declination line")
+
+    campaign = _mc_campaign_directory(directory_template, dl2_table.nsb_level)
+    mc_type = "Gamma" if irf_type == "point" else "GammaDiffuse"
+    return [
+        IRFNode(
+            nsb_level=attribute.nsb,
+            dec_line=attribute.dec,
+            zenith=attribute.theta,
+            azimuth=attribute.azimuth,
+            dl2_path=attribute.path,
+            irf_type=irf_type,
+        )
+        for attribute in find_mc_dl2_files(campaign)
+        if attribute.dec == dl2_table.dec_line and attribute.mc_type == mc_type
+    ]
+
+
 class DL3Producer(DLProducer):
     level: ClassVar[Level] = "dl3"
     config: DL3ProducerConfig
@@ -277,7 +309,7 @@ class DL3Producer(DLProducer):
             warnings.warn(f"dl3: no DL2 directory at {self.dl2_directory}; skipping", stacklevel=2)
             return counts
 
-        irf_config = IRFConfig(build_options.event_filter)
+        irf_config = IRFConfig(build_options.event_filter, point_like=build_options.point_like)
         generator = IRFGenerator(
             build_options.irf_directory or self.output_root / "irfs",
             irf_config,
@@ -286,7 +318,13 @@ class DL3Producer(DLProducer):
         # One IRF per MC node, deduplicated across DL2 files of the same group.
         nodes: dict[Path, IRFNode] = {}
         for dl2_file in sorted(self.dl2_directory.glob("*/*.h5")):
-            for node in find_irf_nodes(LSTDL2EventTable(dl2_file)):
+            table = LSTDL2EventTable(dl2_file)
+            irf_nodes = _irf_nodes_for_observation(
+                table,
+                build_options.mc_dl2_directory,
+                irf_config.irf_type,
+            )
+            for node in irf_nodes:
                 nodes.setdefault(node.relative_path, node)
         for node in nodes.values():
             generator.make_irf_node(node)

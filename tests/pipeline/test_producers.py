@@ -6,7 +6,8 @@ import pytest
 
 import lst_tools.pipeline.producers as producers_module
 from lst_tools.event_filter import EventFilter
-from lst_tools.finder.datalevel_attributes import DL3Attributes, DLAttributes
+from lst_tools.finder import MC_DL2_PATH
+from lst_tools.finder.datalevel_attributes import DL3Attributes, DLAttributes, MCDL2Attribute
 from lst_tools.pipeline import (
     DL1LinkOptions,
     DL1Producer,
@@ -395,11 +396,20 @@ class TestDL3Producer:
         return files
 
     def _fake_irf_and_reduction(self, monkeypatch):
-        """IRFGenerator/find_irf_nodes/LSTDL2EventTable/DL3Reducer stand-ins."""
-        node = SimpleNamespace(relative_path=Path("nsb_0.38/dec_347/theta_20_az_180.irf.fits.gz"))
+        """MC finder, IRFGenerator, LSTDL2EventTable, and DL3Reducer stand-ins."""
+        attributes = [
+            MCDL2Attribute(Path("/mc/diffuse.h5"), "GammaDiffuse", 20, 180, 0.38, 347),
+            MCDL2Attribute(Path("/mc/gamma.h5"), "Gamma", 20, 180, 0.38, 347),
+            MCDL2Attribute(Path("/mc/other_dec.h5"), "GammaDiffuse", 20, 180, 0.38, 999),
+        ]
         made_nodes = []
         reductions = []
         generator_bases = []
+        campaigns = []
+
+        def fake_find_mc_dl2_files(directory):
+            campaigns.append(Path(directory))
+            return attributes
 
         class FakeIRFGenerator:
             def __init__(self, base_path, irf_config):
@@ -418,11 +428,12 @@ class TestDL3Producer:
                 reductions.append((dl2_files, Path(output_dir)))
                 return [dl2_file.with_suffix(".fits") for dl2_file in dl2_files]
 
-        monkeypatch.setattr(producers_module, "LSTDL2EventTable", lambda path: object())
-        monkeypatch.setattr(producers_module, "find_irf_nodes", lambda table: [node])
+        table = SimpleNamespace(nsb_level=0.38, dec_line=347)
+        monkeypatch.setattr(producers_module, "LSTDL2EventTable", lambda path: table)
+        monkeypatch.setattr(producers_module, "find_mc_dl2_files", fake_find_mc_dl2_files)
         monkeypatch.setattr(producers_module, "IRFGenerator", FakeIRFGenerator)
         monkeypatch.setattr(producers_module, "DL3Reducer", FakeDL3Reducer)
-        return made_nodes, reductions, generator_bases
+        return made_nodes, reductions, generator_bases, campaigns
 
     @staticmethod
     def _build_config(**overrides):
@@ -436,7 +447,7 @@ class TestDL3Producer:
 
     def test_build_generates_irfs_and_reduces_per_bin(self, tmp_path, monkeypatch):
         dl2_files = self._make_dl2_tree(tmp_path, 10623, 10624)
-        made_nodes, reductions, generator_bases = self._fake_irf_and_reduction(monkeypatch)
+        made_nodes, reductions, generator_bases, campaigns = self._fake_irf_and_reduction(monkeypatch)
         producer = DL3Producer(
             self._build_config(),
             tmp_path / "out",
@@ -447,15 +458,19 @@ class TestDL3Producer:
 
         # one node although two DL2 files were scanned (deduplicated by relative path)
         assert len(made_nodes) == 1
+        assert made_nodes[0].dl2_path == Path("/mc/diffuse.h5")
+        assert made_nodes[0].irf_type == "full-enclosure"
         assert counts["dl3:irf_nodes"] == 1
         assert counts["dl3:reduced"] == 2
         assert counts["dl3:failed"] == 0
         assert generator_bases == [tmp_path / "out" / "irfs"]
         assert reductions == [(dl2_files, tmp_path / "out" / "dl3" / "zd_20_30")]
+        campaign = MC_DL2_PATH / "20250212_v0.10.17_allsky_interp_dl2_irfs_nsb_0.38"
+        assert campaigns == [campaign, campaign]
 
     def test_build_uses_configured_irf_directory(self, tmp_path, monkeypatch):
         self._make_dl2_tree(tmp_path, 10623)
-        _, reductions, generator_bases = self._fake_irf_and_reduction(monkeypatch)
+        _, reductions, generator_bases, _ = self._fake_irf_and_reduction(monkeypatch)
         config = self._build_config(irf_directory=tmp_path / "my_irfs")
         producer = DL3Producer(config, tmp_path / "out", source=SourceConfig(name="Crab", ra=83.6, dec=22.0))
 
@@ -463,6 +478,40 @@ class TestDL3Producer:
 
         assert generator_bases == [tmp_path / "my_irfs"]
         assert len(reductions) == 1
+
+    def test_build_uses_absolute_mc_dl2_directory(self, tmp_path, monkeypatch):
+        self._make_dl2_tree(tmp_path, 10623)
+        _, _, _, campaigns = self._fake_irf_and_reduction(monkeypatch)
+        config = self._build_config(mc_dl2_directory=str(tmp_path / "mc_$NSB_LEVEL"))
+        producer = DL3Producer(config, tmp_path / "out", source=SourceConfig(name="Crab", ra=83.6, dec=22.0))
+
+        producer.produce(make_selection([RUN_10623]))
+
+        assert campaigns == [tmp_path / "mc_0.38"]
+
+    def test_build_configures_point_like_irf_generation(self, tmp_path, monkeypatch):
+        self._make_dl2_tree(tmp_path, 10623)
+        made_nodes, _, _, _ = self._fake_irf_and_reduction(monkeypatch)
+        irf_configs = []
+        real_irf_config = producers_module.IRFConfig
+
+        def capture_irf_config(*args, **kwargs):
+            config = real_irf_config(*args, **kwargs)
+            irf_configs.append(config)
+            return config
+
+        monkeypatch.setattr(producers_module, "IRFConfig", capture_irf_config)
+        producer = DL3Producer(
+            self._build_config(point_like=True),
+            tmp_path / "out",
+            source=SourceConfig(name="Crab", ra=83.6, dec=22.0),
+        )
+
+        producer.produce(make_selection([RUN_10623]))
+
+        assert [config.point_like for config in irf_configs] == [True]
+        assert made_nodes[0].dl2_path == Path("/mc/gamma.h5")
+        assert made_nodes[0].irf_type == "point"
 
     def test_build_requires_source(self, tmp_path, monkeypatch):
         self._make_dl2_tree(tmp_path, 10623)

@@ -15,7 +15,7 @@ from lst_tools.irf import IRFConfig
 __all__ = ["DL3Reducer"]
 
 # The interpolation set of one MC group: all pointings of one
-# nsb_<x>/dec_<y>/ directory, as written by IRFGenerator (IRFNode.relative_path).
+# nsb_<x>/dec_<y>/<irf_type>/ directory, as written by IRFGenerator.
 IRF_FILE_PATTERN = "theta_*_az_*.irf.fits.gz"
 
 
@@ -24,7 +24,8 @@ class DL3Reducer:
 
     Every DL2 file is reduced against the IRF interpolation set of its own
     MC group (NSB tuning and declination line, read from the DL2
-    provenance): ``irfs_root / nsb_<nsb> / dec_<line>``. The gammaness cut
+    provenance): ``irfs_root / nsb_<nsb> / dec_<line> / <irf_type>``. The
+    gammaness cut
     rides inside the IRF; the quality filters come from the same
     ``IRFConfig`` that generated it.
 
@@ -106,13 +107,13 @@ class DL3Reducer:
         """The IRF interpolation set of the MC group matching the DL2 provenance.
 
         Same naming contract as ``IRFNode.relative_path``
-        (``nsb_<nsb>/dec_<line>``).
+        (``nsb_<nsb>/dec_<line>/<irf_type>``).
         """
         table = LSTDL2EventTable(dl2_file)
         if table.nsb_level is None or table.dec_line is None:
             raise ValueError(f"Could not derive the MC group (NSB tuning, declination line) from {dl2_file}")
         dec_name = f"dec_min_{abs(table.dec_line)}" if table.dec_line < 0 else f"dec_{table.dec_line}"
-        irf_dir = self.irfs_root / f"nsb_{table.nsb_level:g}" / dec_name
+        irf_dir = self.irfs_root / f"nsb_{table.nsb_level:g}" / dec_name / self.irf_config.irf_type
         if not irf_dir.is_dir():
             raise FileNotFoundError(f"No IRF set for {dl2_file}: {irf_dir} does not exist")
         return irf_dir

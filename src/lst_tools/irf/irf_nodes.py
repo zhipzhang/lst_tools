@@ -1,16 +1,17 @@
 from dataclasses import dataclass
 from pathlib import Path
+from typing import Literal
 
 
 @dataclass(frozen=True)
 class IRFNode:
     """One MC DL2 test node, i.e. one IRF file to generate.
 
-    The node is identified only by where its input MC file lives:
-    the NSB-tuning campaign, the declination line, and the pointing
-    (zenith, azimuth) of the MC node. Analysis cuts such as the intensity
-    cut or the gamma/hadron efficiency are *not* part of this identity;
-    they are generation parameters supplied when the IRF is built.
+    The node is identified by where its input MC file lives and the IRF type:
+    the NSB-tuning campaign, declination line, pointing (zenith, azimuth),
+    and point-like or full-enclosure kind. Analysis cuts such as the intensity
+    cut or gamma/hadron efficiency are generation parameters supplied when
+    the IRF is built.
     """
 
     nsb_level: float
@@ -18,6 +19,7 @@ class IRFNode:
     zenith: float
     azimuth: float
     dl2_path: Path
+    irf_type: Literal["full-enclosure", "point"] = "full-enclosure"
 
     @property
     def declination(self) -> float:
@@ -39,4 +41,4 @@ class IRFNode:
 
     @property
     def relative_path(self) -> Path:
-        return Path(f"nsb_{self.nsb_level:g}") / self.dec_name / self.file_name
+        return Path(f"nsb_{self.nsb_level:g}") / self.dec_name / self.irf_type / self.file_name

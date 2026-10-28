@@ -91,9 +91,8 @@ def plot_radial_acceptance(
     Counts in each requested radial interval are divided by its exact
     spherical solid angle. When ``density`` is true, each non-empty curve has
     unit solid-angle-weighted integral. When ``theta_squared`` is true, the
-    horizontal axis shows the square of the offset radius. Combine multiple
-    samples with :meth:`~lst_tools.bkg.events.SkyOffsetEvents.add` before
-    calling this function.
+    horizontal axis shows the square of the offset radius. Multi-observation
+    accumulation belongs to :class:`~lst_tools.bkg.bkgmaker.BkgMaker`.
     """
     if not isinstance(events, SkyOffsetEvents):
         raise TypeError("events must be a SkyOffsetEvents object")

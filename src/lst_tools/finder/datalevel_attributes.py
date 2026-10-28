@@ -38,14 +38,22 @@ DL1Attributes: TypeAlias = DLAttributes
 DL2Attributes: TypeAlias = DLAttributes
 
 
+@dataclass(frozen=True)
+class MCDL2Attribute:
+    path: Path
+    mc_type: Literal["Gamma", "GammaDiffuse"]
+    theta: float
+    azimuth: float
+    nsb: float
+    dec: int
+
+
 @dataclass
 class DL3Attributes(DLAttributes):
-    """
-    Attributes for DL3 Products.
-    DL3 products are much more complex in Laplama server, cause we have multiple
-    versions, like:
-        - full exposure/ point-like
-        - different gh/theta efficiency
+    """Attributes for the DL3 product variants on the La Palma server.
+
+    Variants include full-enclosure/point-like IRFs and different
+    gamma/hadron and theta efficiencies.
     """
 
     irf_type: Literal["full-enclosure", "point"]

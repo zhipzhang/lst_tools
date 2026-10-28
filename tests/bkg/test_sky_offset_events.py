@@ -1,33 +1,25 @@
-"""Behavioral contract for the center-free SkyOffsetEvents interface."""
-
 import astropy.units as u
 import numpy as np
 import pytest
 
-import lst_tools.bkg.events as events_module
 from lst_tools import bkg
-from lst_tools.bkg import SkyOffsetEvents
+from lst_tools.bkg import ObservationFrame, SkyOffsetEvents
 
 
-def make_events(
-    *,
-    x=(-0.5, 0.25, 1.0),
-    y=(0.0, 0.5, -0.25),
-    energy=(0.2, 1.0, 4.0),
-    livetime=10 * u.s,
-):
-    return SkyOffsetEvents(x=x, y=y, energy=energy, livetime=livetime)
+def make_events(frame, *, x=(-0.5, 0.25, 1.0), y=(0.0, 0.5, -0.25), energy=(0.2, 1.0, 4.0), livetime=10 * u.s):
+    return SkyOffsetEvents(x=x, y=y, energy=energy, livetime=livetime, frame=frame)
 
 
-def test_events_are_center_free_and_use_canonical_units():
+def test_events_use_canonical_units_and_keep_frame(observation_frame):
     events = SkyOffsetEvents(
         x=[-30, 15] * u.arcmin,
         y=[0, 30] * u.arcmin,
         energy=[200, 1_000] * u.GeV,
         livetime=2 * u.min,
+        frame=observation_frame,
     )
 
-    assert not hasattr(events, "center")
+    assert events.frame is observation_frame
     assert events.livetime.unit == u.s
     np.testing.assert_allclose(events.x, [-0.5, 0.25])
     np.testing.assert_allclose(events.y, [0, 0.5])
@@ -35,45 +27,40 @@ def test_events_are_center_free_and_use_canonical_units():
     assert events.livetime.value == pytest.approx(120)
 
 
-def test_unitless_arrays_use_degrees_and_tev():
-    events = make_events(livetime=10 * u.s)
-
-    np.testing.assert_allclose(events.x, [-0.5, 0.25, 1.0])
-    np.testing.assert_allclose(events.y, [0.0, 0.5, -0.25])
-    np.testing.assert_allclose(events.energy, [0.2, 1.0, 4.0])
-    assert events.livetime == 10 * u.s
+def test_frame_is_required_even_for_empty_samples():
+    with pytest.raises(TypeError):
+        SkyOffsetEvents()
 
 
-def test_empty_initializer_is_a_zero_exposure_sample():
-    events = SkyOffsetEvents()
+def test_empty_initializer_is_a_zero_exposure_sample(observation_frame):
+    events = SkyOffsetEvents(frame=observation_frame)
 
     assert len(events) == 0
-    assert events.x.size == 0
-    assert events.y.size == 0
-    assert events.energy.size == 0
     assert events.livetime == 0 * u.s
+
+
+def test_observation_frame_contains_fov_and_mean_pointing(observation_frame):
+    assert observation_frame.mean_time.isscalar
+    assert observation_frame.pointing_alt == 70 * u.deg
+    assert observation_frame.pointing_az == 10 * u.deg
+
+
+def test_event_addition_and_exclusion_state_are_not_supported(observation_frame):
+    events = make_events(observation_frame)
+
+    assert not hasattr(events, "add")
+    assert not hasattr(events, "exclusion_regions")
+    with pytest.raises(TypeError):
+        events + events
 
 
 def test_camera_events_has_been_removed():
     assert not hasattr(bkg, "CameraEvents")
-    assert not hasattr(events_module, "CameraEvents")
 
 
-def test_empty_initializer_is_an_additive_identity():
-    events = make_events()
-
-    combined = events + SkyOffsetEvents()
-
-    np.testing.assert_allclose(combined.x, events.x)
-    np.testing.assert_allclose(combined.y, events.y)
-    np.testing.assert_allclose(combined.energy, events.energy)
-    assert combined.livetime == events.livetime
-    assert combined is not events
-
-
-def test_input_arrays_are_copied():
+def test_input_arrays_are_copied(observation_frame):
     x = np.array([0.1, 0.2])
-    events = SkyOffsetEvents(x=x, y=[0, 0], energy=[1, 2], livetime=3 * u.s)
+    events = SkyOffsetEvents(x=x, y=[0, 0], energy=[1, 2], livetime=3 * u.s, frame=observation_frame)
 
     x[0] = 99
 
@@ -82,117 +69,43 @@ def test_input_arrays_are_copied():
 
 @pytest.mark.parametrize(
     ("x", "y", "energy"),
-    [
-        ([0, 1], [0], [1, 2]),
-        ([[0, 1]], [[0, 1]], [[1, 2]]),
-    ],
+    [([0, 1], [0], [1, 2]), ([[0, 1]], [[0, 1]], [[1, 2]])],
 )
-def test_event_columns_must_be_one_dimensional_and_equal_length(x, y, energy):
+def test_event_columns_must_be_one_dimensional_and_equal_length(observation_frame, x, y, energy):
     with pytest.raises(ValueError, match="same number|one-dimensional"):
-        SkyOffsetEvents(x=x, y=y, energy=energy, livetime=1 * u.s)
+        SkyOffsetEvents(x=x, y=y, energy=energy, livetime=1 * u.s, frame=observation_frame)
 
 
 @pytest.mark.parametrize("livetime", [-1 * u.s, np.inf * u.s, [1, 2] * u.s, 1 * u.m])
-def test_livetime_must_be_a_finite_non_negative_scalar_time(livetime):
+def test_livetime_must_be_a_finite_non_negative_scalar_time(observation_frame, livetime):
     with pytest.raises(ValueError, match="livetime"):
-        SkyOffsetEvents(x=[], y=[], energy=[], livetime=livetime)
+        SkyOffsetEvents(livetime=livetime, frame=observation_frame)
 
 
-def test_empty_sample_can_represent_exposure_without_selected_events():
-    events = SkyOffsetEvents(x=[], y=[], energy=[], livetime=30 * u.s)
+def test_empty_sample_can_represent_exposure_without_selected_events(observation_frame):
+    events = SkyOffsetEvents(livetime=30 * u.s, frame=observation_frame)
 
     assert len(events) == 0
     assert events.livetime == 30 * u.s
 
 
-def test_non_empty_sample_requires_positive_livetime():
+def test_non_empty_sample_requires_positive_livetime(observation_frame):
     with pytest.raises(ValueError, match="positive"):
-        SkyOffsetEvents(x=[0], y=[0], energy=[1], livetime=0 * u.s)
+        SkyOffsetEvents(x=[0], y=[0], energy=[1], livetime=0 * u.s, frame=observation_frame)
 
 
-def test_radius_is_the_flat_offset_distance():
-    events = SkyOffsetEvents(x=[1, 3], y=[1, 4], energy=[1, 1], livetime=1 * u.s)
+def test_radius_is_the_flat_offset_distance(observation_frame):
+    events = make_events(observation_frame, x=[1, 3], y=[1, 4], energy=[1, 1], livetime=1 * u.s)
 
     np.testing.assert_allclose(events.radius, [np.sqrt(2), 5])
 
 
-def test_energy_selection_is_half_open_and_preserves_full_livetime():
-    events = make_events(energy=(0.2, 1.0, 2.0, 4.0), x=(0, 1, 2, 3), y=(0, 0, 0, 0))
+def test_energy_selection_preserves_livetime_and_frame(observation_frame):
+    events = make_events(observation_frame, energy=(0.2, 1.0, 2.0, 4.0), x=(0, 1, 2, 3), y=(0, 0, 0, 0))
 
     selected = events.select_energy(1 * u.TeV, 4 * u.TeV)
 
     np.testing.assert_allclose(selected.energy, [1, 2])
     np.testing.assert_allclose(selected.x, [1, 2])
     assert selected.livetime == events.livetime
-
-
-def test_to_image_uses_requested_bins():
-    events = SkyOffsetEvents(
-        x=[-0.8, -0.2, 0.2, 0.8, 0, 2] * u.deg,
-        y=[0, 0, 0, 0, 0, 0] * u.deg,
-        energy=[0.2, 0.8, 1.5, 6, 3, 2] * u.TeV,
-        livetime=10 * u.s,
-    )
-
-    image = events.to_image(
-        x_edges=[-1, 0, 1] * u.deg,
-        y_edges=[-0.5, 0.5] * u.deg,
-        e_edges=[0.1, 1, 10] * u.TeV,
-    )
-
-    expected = np.zeros((2, 1, 2))
-    expected[0, 0, 0] = 2
-    expected[1, 0, 1] = 3
-    np.testing.assert_array_equal(image.histogram.values(), expected)
-
-
-def test_add_concatenates_events_and_sums_livetime():
-    first = make_events(x=(0, 1), y=(0, 0), energy=(0.2, 1), livetime=10 * u.s)
-    second = make_events(x=(2,), y=(0.5,), energy=(3,), livetime=0.5 * u.min)
-
-    combined = first.add(second)
-
-    np.testing.assert_allclose(combined.x, [0, 1, 2])
-    np.testing.assert_allclose(combined.y, [0, 0, 0.5])
-    np.testing.assert_allclose(combined.energy, [0.2, 1, 3])
-    assert combined.livetime == 40 * u.s
-
-
-def test_add_includes_livetime_from_an_empty_sample():
-    events = make_events(livetime=10 * u.s)
-    empty_exposure = SkyOffsetEvents(x=[], y=[], energy=[], livetime=20 * u.s)
-
-    combined = events.add(empty_exposure)
-
-    np.testing.assert_allclose(combined.energy, events.energy)
-    assert combined.livetime == 30 * u.s
-
-
-def test_add_does_not_modify_or_share_arrays_with_operands():
-    first = make_events(x=(0,), y=(0,), energy=(1,), livetime=10 * u.s)
-    second = make_events(x=(1,), y=(1,), energy=(2,), livetime=20 * u.s)
-
-    combined = first.add(second)
-    combined.x[0] = 99
-
-    assert first.x[0] == 0
-    assert second.x[0] == 1
-    assert first.livetime == 10 * u.s
-    assert second.livetime == 20 * u.s
-
-
-def test_plus_operator_has_the_same_semantics_as_add():
-    first = make_events(x=(0,), y=(0,), energy=(1,), livetime=10 * u.s)
-    second = make_events(x=(1,), y=(1,), energy=(2,), livetime=20 * u.s)
-
-    combined = first + second
-
-    np.testing.assert_allclose(combined.energy, [1, 2])
-    assert combined.livetime == 30 * u.s
-
-
-def test_add_rejects_other_types():
-    events = make_events()
-
-    with pytest.raises(TypeError, match="SkyOffsetEvents"):
-        events.add(object())
+    assert selected.frame is observation_frame
