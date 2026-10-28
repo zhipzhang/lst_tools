@@ -1,20 +1,16 @@
-"""Event-level ICRS sky offsets for background studies."""
+"""Event-level ICRS sky offsets and their observation metadata."""
 
 from collections.abc import Iterable
-from typing import TYPE_CHECKING
+from dataclasses import dataclass
 
 import astropy.units as u
 import numpy as np
-from gammapy.maps import RegionGeom
-from gammapy.utils.coordinates.fov import FoVICRSFrame
+from astropy.time import Time
+from gammapy.utils.coordinates import FoVAltAzFrame, FoVICRSFrame
 from numpy.typing import NDArray
-
-if TYPE_CHECKING:
-    from .camera import CameraImage
 
 
 def _as_array(values: Iterable[float] | u.Quantity, unit: u.Unit, name: str) -> NDArray[np.float64]:
-    """Return a one-dimensional float array expressed in ``unit``."""
     try:
         if isinstance(values, u.Quantity):
             array = values.to_value(unit)
@@ -29,7 +25,6 @@ def _as_array(values: Iterable[float] | u.Quantity, unit: u.Unit, name: str) -> 
 
 
 def _energy_bound(value: float | u.Quantity, name: str) -> float:
-    """Convert a scalar energy bound to TeV."""
     try:
         if isinstance(value, u.Quantity):
             bound = float(value.to_value(u.TeV))
@@ -43,34 +38,38 @@ def _energy_bound(value: float | u.Quantity, name: str) -> float:
     return bound
 
 
+@dataclass(frozen=True)
+class ObservationFrame:
+    """Field-of-view frame and mean pointing metadata for one observation."""
+
+    fov_frame: FoVICRSFrame | FoVAltAzFrame
+    mean_time: Time
+    pointing_alt: u.Quantity
+    pointing_az: u.Quantity
+
+    def __post_init__(self) -> None:
+        if not isinstance(self.fov_frame, (FoVICRSFrame, FoVAltAzFrame)):
+            raise TypeError("fov_frame must be a FoVICRSFrame or FoVAltAzFrame")
+        if not isinstance(self.mean_time, Time) or not self.mean_time.isscalar:
+            raise ValueError("mean_time must be a scalar Time")
+
+        for name in ("pointing_alt", "pointing_az"):
+            value = getattr(self, name)
+            try:
+                angle = value.to(u.deg)
+            except (AttributeError, u.UnitConversionError) as error:
+                raise ValueError(f"{name} must be an angle quantity") from error
+            if angle.ndim != 0 or not np.isfinite(angle.value):
+                raise ValueError(f"{name} must be a finite scalar")
+            object.__setattr__(self, name, angle)
+
+
 class SkyOffsetEvents:
-    """Center-free event samples in telescope sky-offset coordinates.
+    """One observation's events in telescope sky-offset coordinates.
 
-    This is the public interface for the reduced event representation used by
-    background makers. Coordinate transformation from an instrument-specific
-    event format belongs in a separate adapter; instances therefore contain
-    only offsets, reconstructed energies, and the effective livetime of the
-    sample.
-
-    Parameters
-    ----------
-    x, y
-        ICRS-aligned offset longitude and latitude. Unitless values are
-        interpreted as degrees.
-    energy
-        Reconstructed event energies. Unitless values are interpreted as TeV.
-    livetime
-        Effective observation time as a quantity, stored in seconds.
-
-    Attributes
-    ----------
-    x, y : NDArray[np.float64]
-        Offsets stored in degrees.
-    energy : NDArray[np.float64]
-        Energies stored in TeV.
-    livetime : u.Quantity
-        Effective observation time in seconds.
-
+    Unitless offsets are interpreted as degrees and unitless energies as TeV.
+    The required frame identifies the observation; exclusion and combination
+    of observations belong to the background-making layer.
     """
 
     def __init__(
@@ -79,13 +78,16 @@ class SkyOffsetEvents:
         y: Iterable[float] | u.Quantity = (),
         energy: Iterable[float] | u.Quantity = (),
         livetime: u.Quantity = 0 * u.s,
-        exclusion_regions: RegionGeom | None = None,
-        frame: FoVICRSFrame | None = None,
+        *,
+        frame: ObservationFrame,
     ) -> None:
-        self.x: NDArray[np.float64] = _as_array(x, u.Unit("deg"), "x")
-        self.y: NDArray[np.float64] = _as_array(y, u.Unit("deg"), "y")
-        self.energy: NDArray[np.float64] = _as_array(energy, u.Unit("TeV"), "energy")
+        self.x: NDArray[np.float64] = _as_array(x, u.deg, "x")
+        self.y: NDArray[np.float64] = _as_array(y, u.deg, "y")
+        self.energy: NDArray[np.float64] = _as_array(energy, u.TeV, "energy")
+        self.frame = frame
 
+        if not isinstance(frame, ObservationFrame):
+            raise TypeError("frame must be an ObservationFrame")
         try:
             self.livetime: u.Quantity = livetime.to(u.s, copy=True)
         except (AttributeError, u.UnitConversionError) as error:
@@ -95,21 +97,14 @@ class SkyOffsetEvents:
             raise ValueError("livetime must be a finite scalar")
         if self.livetime < 0 * u.s:
             raise ValueError("livetime must be non-negative")
-
         if not (len(self.x) == len(self.y) == len(self.energy)):
             raise ValueError("x, y, and energy must contain the same number of events")
         if not all(np.all(np.isfinite(values)) for values in (self.x, self.y, self.energy)):
             raise ValueError("x, y, and energy must contain only finite values")
         if self.energy.size > 0 and self.livetime == 0 * u.s:
             raise ValueError("livetime must be positive when events are present")
-        if exclusion_regions is not None:
-            self.exclusion_regions = exclusion_regions
-            if frame is None:
-                raise ValueError("frame must be provided when exclusion_regions are given")
-            self.frame = frame
 
     def __len__(self) -> int:
-        """Return the number of stored events."""
         return len(self.energy)
 
     @property
@@ -122,7 +117,7 @@ class SkyOffsetEvents:
         energy_low: float | u.Quantity,
         energy_high: float | u.Quantity,
     ) -> "SkyOffsetEvents":
-        """Return events in ``[energy_low, energy_high)`` with unchanged livetime."""
+        """Return events in ``[energy_low, energy_high)`` with unchanged metadata."""
         low = _energy_bound(energy_low, "energy_low")
         high = _energy_bound(energy_high, "energy_high")
         if low >= high:
@@ -134,21 +129,5 @@ class SkyOffsetEvents:
             y=self.y[selected],
             energy=self.energy[selected],
             livetime=self.livetime,
+            frame=self.frame,
         )
-
-    def to_image(
-        self,
-        x_edges: Iterable[float],
-        y_edges: Iterable[float],
-        e_edges: Iterable[float],
-    ) -> "CameraImage":
-        """Bin these events into a new, independent camera image."""
-        from .camera import CameraImage
-
-        image = CameraImage(
-            x_edges=x_edges,
-            y_edges=y_edges,
-            e_edges=e_edges,
-        )
-        image.fill(self)
-        return image

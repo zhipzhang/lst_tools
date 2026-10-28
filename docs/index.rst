@@ -13,6 +13,7 @@ analysis.
    datacheck
    pipeline
    offruns
+   bkg
 
 .. toctree::
    :maxdepth: 1

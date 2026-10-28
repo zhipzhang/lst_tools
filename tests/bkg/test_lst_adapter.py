@@ -33,10 +33,13 @@ def run_dl2():
     ).icrs
     altaz_frame = AltAz(obstime=event_time, location=LST_LOCATION)
     reconstructed_altaz = reconstructed.transform_to(altaz_frame)
+    pointing_altaz = pointing.transform_to(altaz_frame)
     data = pd.DataFrame(
         {
             "reco_alt": reconstructed_altaz.alt.to_value(u.rad),
             "reco_az": reconstructed_altaz.az.to_value(u.rad),
+            "alt_tel": pointing_altaz.alt.to_value(u.rad),
+            "az_tel": pointing_altaz.az.to_value(u.rad),
             "reco_energy": [0.2, 0.8, 2.0, 5.0],
             "trigger_time": event_time.unix,
             "keep": [True, False, True, False],
@@ -63,6 +66,20 @@ def test_adapter_uses_run_pointing_as_frame_center(run_dl2):
     np.testing.assert_allclose(events.y, expected_y, atol=1e-8)
     np.testing.assert_allclose(events.energy, [0.2, 0.8, 2.0, 5.0])
     assert events.livetime == 12.5 * u.s
+
+
+def test_adapter_adds_mean_observation_frame_metadata(run_dl2):
+    dl2, _, _ = run_dl2
+
+    events = sky_offset_events_from_lstdl2(dl2)
+
+    expected_az = np.arctan2(
+        np.sin(dl2.data["az_tel"]).mean(),
+        np.cos(dl2.data["az_tel"]).mean(),
+    )
+    assert events.frame.mean_time.unix == pytest.approx(dl2.data["trigger_time"].mean())
+    assert events.frame.pointing_alt.to_value(u.rad) == pytest.approx(dl2.data["alt_tel"].mean())
+    assert events.frame.pointing_az.to_value(u.rad) == pytest.approx(expected_az)
 
 
 def test_adapter_applies_filter_and_preserves_complete_livetime(run_dl2):

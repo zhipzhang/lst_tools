@@ -16,20 +16,22 @@ THETA_EDGES = np.linspace(0, 0.5, 6)
 
 
 @pytest.fixture
-def sky_offset_events():
+def sky_offset_events(observation_frame):
     return SkyOffsetEvents(
         x=[0.05, 0.1, 0.15, 0.3, 0.05, 0.1, 0.2, 0.4] * u.deg,
         y=[0, 0, 0, 0, 0, 0, 0, 0] * u.deg,
         energy=[0.2, 0.3, 0.5, 0.8, 2, 3, 5, 8] * u.TeV,
         livetime=10 * u.s,
+        frame=observation_frame,
     )
 
 
-def test_plot_energy_slices_creates_one_panel_per_energy_bin():
+def test_plot_energy_slices_creates_one_panel_per_energy_bin(observation_frame):
     image = CameraImage(
         x_edges=[-1, 0, 1],
         y_edges=[-1, 0, 1],
         e_edges=[0.1, 1, 10],
+        frame=observation_frame,
     )
     image.histogram.fill(
         x=[-0.5, 0.5, 0.5],
@@ -91,41 +93,9 @@ def test_plot_radial_acceptance_can_show_event_density(sky_offset_events):
     plt.close(figure)
 
 
-def test_plot_radial_acceptance_uses_events_combined_before_plotting(sky_offset_events):
-    event_collections = [
-        SkyOffsetEvents(
-            x=sky_offset_events.x[index::2],
-            y=sky_offset_events.y[index::2],
-            energy=sky_offset_events.energy[index::2],
-            livetime=sky_offset_events.livetime / 2,
-        )
-        for index in range(2)
-    ]
-
-    single_figure, single_axis = plot_radial_acceptance(
-        sky_offset_events,
-        energy_edges=[0.1, 1, 10],
-        theta_edges=THETA_EDGES,
-        density=False,
-    )
-    combined_figure, combined_axis = plot_radial_acceptance(
-        event_collections[0] + event_collections[1],
-        energy_edges=[0.1, 1, 10],
-        theta_edges=THETA_EDGES,
-        density=False,
-    )
-
-    for single_line, combined_line in zip(single_axis.lines, combined_axis.lines, strict=True):
-        np.testing.assert_allclose(combined_line.get_xdata(), single_line.get_xdata())
-        np.testing.assert_allclose(combined_line.get_ydata(), single_line.get_ydata())
-
-    plt.close(single_figure)
-    plt.close(combined_figure)
-
-
-def test_plot_radial_acceptance_can_plot_an_empty_sample():
+def test_plot_radial_acceptance_can_plot_an_empty_sample(observation_frame):
     figure, axis = plot_radial_acceptance(
-        SkyOffsetEvents(),
+        SkyOffsetEvents(frame=observation_frame),
         energy_edges=[0.1, 1, 10],
         theta_edges=THETA_EDGES,
     )

@@ -1,12 +1,15 @@
 """Tools for camera-coordinate background studies."""
 
+from .bkgmaker import BkgMaker
 from .camera import CameraImage
-from .events import SkyOffsetEvents
+from .events import ObservationFrame, SkyOffsetEvents
 from .lst_adapter import sky_offset_events_from_lstdl2
 
 __all__ = [
     "Background2DMaker",
+    "BkgMaker",
     "CameraImage",
+    "ObservationFrame",
     "SkyOffsetEvents",
     "plot_energy_slices",
     "plot_radial_acceptance",
