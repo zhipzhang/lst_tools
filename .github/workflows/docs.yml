@@ -30,6 +30,11 @@ jobs:
       - name: Install package and doc dependencies
         run: pip install .[docs]
 
+      # lstchain still pins gammapy~=1.3, but the bkg code needs FoVICRSFrame
+      # (gammapy >= 2.0). Override the pin the same way the dev env does.
+      - name: Upgrade gammapy to 2.x
+        run: pip install --no-deps "gammapy>=2"
+
       - name: Build the documentation
         run: sphinx-build -b html docs docs/_build/html
 
