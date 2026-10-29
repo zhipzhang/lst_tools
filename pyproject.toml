@@ -29,6 +29,7 @@ dependencies = [
 [project.scripts]
 init-lstana = "lst_tools.scripts.init_lstana:main"
 prepare-offruns = "lst_tools.scripts.prepare_offruns:main"
+generate-dl4 = "lst_tools.scripts.generate_dl4:main"
 
 [project.optional-dependencies]
 dev = [
