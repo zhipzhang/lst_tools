@@ -24,6 +24,7 @@ dependencies = [
     "h5py",
     "pyirf",
     "uhi",
+    "regions==0.11",
 ]
 
 [project.scripts]
