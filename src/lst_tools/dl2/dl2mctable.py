@@ -17,14 +17,19 @@ class LSTDL2MCTable(LSTDL2TableBase):
     def __init__(self, file_name: str | PathLike[str]):
         super().__init__(file_name)
         simu_config = read_simu_info_merged_hdf5(self.file_name)
+        viewcone_min = simu_config.min_viewcone_radius
+        viewcone_max = simu_config.max_viewcone_radius
+        if viewcone_max - viewcone_min < 0.1 * u.deg:
+            viewcone_min = 0 * u.deg
+            viewcone_max = 0 * u.deg
         self.sim_info = SimulatedEventsInfo(
             n_showers=simu_config.n_showers * simu_config.shower_reuse,
             energy_min=simu_config.energy_range_min,
             energy_max=simu_config.energy_range_max,
             max_impact=simu_config.max_scatter_range,
             spectral_index=simu_config.spectral_index,
-            viewcone_min=0 * u.deg,  # here, we enforce a zero viewcone for point simulation
-            viewcone_max=0 * u.deg,
+            viewcone_min=viewcone_min,
+            viewcone_max=viewcone_max,
         )
 
     def calculate_weights_for_event(self, t_eff: u.Quantity, spectrum=CRAB_MAGIC_JHEAP2015) -> NDArray[np.float64]:
@@ -35,14 +40,14 @@ class LSTDL2MCTable(LSTDL2TableBase):
 
     @property
     def pointing_ze(self) -> u.Quantity:
-        match = re.search(r"node_theta_([\d.]+)", self.file_name)
+        match = re.search(r"theta_([\d.]+)", self.file_name)
         if match is None:
             raise ValueError(f"Could not parse pointing zenith from MC path: {self.file_name}")
         return float(match.group(1)) * u.Unit("deg")
 
     @property
     def pointing_az(self) -> u.Quantity:
-        match = re.search(r"node_theta_[\d.]+_az_([\d.]+)", self.file_name)
+        match = re.search(r"theta_[\d.]+_az_([\d.]+)", self.file_name)
         if match is None:
             raise ValueError(f"Could not parse pointing azimuth from MC path: {self.file_name}")
         return float(match.group(1)) * u.Unit("deg")

@@ -9,7 +9,8 @@ from astropy.time import Time
 from astropy.utils import iers
 from gammapy.utils.coordinates import FoVAltAzFrame
 
-from lst_tools.bkg import SkyOffsetEvents, sky_offset_events_from_lstdl2
+from lst_tools.bkg import SkyOffsetEvents, sky_offset_events_from_lstdl2, sky_offset_events_from_lstmcdl2
+from lst_tools.dl2 import LSTDL2MCTable
 from lst_tools.location import LST_LOCATION
 
 
@@ -189,3 +190,43 @@ def test_adapter_altaz_frame_centers_each_event_on_its_own_pointing(run_dl2_alta
 
     np.testing.assert_allclose(events.x, 0, atol=1e-10)
     np.testing.assert_allclose(events.y, 0, atol=1e-10)
+
+
+def test_mc_adapter_uses_table_pointing_default_time_and_fixed_livetime():
+    dl2 = object.__new__(LSTDL2MCTable)
+    dl2.file_name = "/data/node_theta_10.0_az_102.199_/dl2_merged.h5"
+    dl2.dl2_params = pd.DataFrame(
+        {
+            "reco_alt": np.deg2rad([80.0, 80.2]),
+            "reco_az": np.deg2rad([102.199, 102.199]),
+            "mc_alt": np.deg2rad([80.0, 80.1]),
+            "mc_az": np.deg2rad([102.199, 102.199]),
+            "reco_energy": [0.2, 0.8],
+            "mc_energy": [0.1, 0.7],
+        }
+    )
+
+    events = sky_offset_events_from_lstmcdl2(dl2)
+
+    np.testing.assert_allclose([events.x[0], events.y[0]], 0, atol=1e-10)
+    assert events.radius[1] == pytest.approx(0.1, abs=1e-10)
+    np.testing.assert_allclose(events.energy, [0.2, 0.8])
+    assert events.frame.mean_time == Time("2026-01-01")
+    assert events.frame.pointing_alt == 80 * u.deg
+    assert events.frame.pointing_az == 102.199 * u.deg
+    assert events.livetime == 50 * u.h
+
+    mc_energy_events = sky_offset_events_from_lstmcdl2(dl2, use_mc_energy=True)
+    np.testing.assert_allclose(mc_energy_events.energy, [0.1, 0.7])
+
+    reco_direction_events = sky_offset_events_from_lstmcdl2(dl2, use_mc_direction=False)
+    assert reco_direction_events.radius[1] == pytest.approx(0.2, abs=1e-10)
+
+    filtered_events = sky_offset_events_from_lstmcdl2(
+        dl2,
+        event_filter=lambda data: data.loc[data["reco_energy"] > 0.5],
+        use_mc_energy=True,
+    )
+    assert len(filtered_events) == 1
+    np.testing.assert_allclose(filtered_events.energy, [0.7])
+    assert filtered_events.livetime == 50 * u.h

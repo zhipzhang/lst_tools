@@ -3,7 +3,7 @@
 from .bkgmaker import BkgMaker
 from .camera import CameraImage
 from .events import ObservationFrame, SkyOffsetEvents
-from .lst_adapter import sky_offset_events_from_lstdl2
+from .lst_adapter import sky_offset_events_from_lstdl2, sky_offset_events_from_lstmcdl2
 
 __all__ = [
     "Background2DMaker",
@@ -14,6 +14,7 @@ __all__ = [
     "plot_energy_slices",
     "plot_radial_acceptance",
     "sky_offset_events_from_lstdl2",
+    "sky_offset_events_from_lstmcdl2",
 ]
 
 
