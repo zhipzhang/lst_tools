@@ -1,0 +1,93 @@
+# Independent DL3 -> DL4 dataset generation:
+#   generate-dl4 config/dl4_datasets.toml
+# Writes one DL4 file per observation; no stacking.
+
+[data]
+directory = "/path/to/dl3"       # contains the DL3 files and index tables
+obs_ids = []                     # empty = all observations
+skip_missing = false
+
+# EVENTS and GTI are always required through Gammapy's require_events=true.
+# Spectrum also requires RAD_MAX for energy-dependent PointSkyRegion sizes.
+required_irf = ["aeff", "edisp", "rad_max"]
+# For [dataset] type = "map", use this instead (no BKG):
+# required_irf = ["aeff", "edisp", "psf"]
+
+[source]
+# Center of the PointSkyRegion; actual ON/OFF radii come from RAD_MAX.
+name = "Crab Nebula"
+ra_deg = 83.632
+dec_deg = 22.0145
+
+[output]
+directory = "/path/to/output/dl4"
+overwrite = false                # false = keep existing DL4 files
+
+[dataset]
+type = "spectrum"                # "spectrum" | "map"
+
+[dataset.energy]
+# Reconstructed-energy axis passed to MapAxis.from_energy_bounds().
+min = 0.03
+max = 30.0
+nbin = 10
+per_decade = true                # nbin per decade; false = total bin count
+unit = "TeV"
+strict_bounds = true
+
+[dataset.energy.true]
+# True-energy axis uses the same options with name = "energy_true".
+min = 0.02
+max = 50.0
+nbin = 20
+per_decade = true
+unit = "TeV"
+strict_bounds = true
+
+[dataset.safe_mask]
+enabled = true
+methods = ["aeff-default"]       # SafeMaskMaker methods
+# Other supported methods: "aeff-max", "edisp-bias", "offset-max", "bkg-peak"
+aeff_percent = 10.0
+bias_percent = 10.0
+offset_max_deg = 3.0
+irfs = "DL4"                     # "DL4" | "DL3"
+# Optional position/fixed-offset arguments (position requires both RA and Dec):
+# position_ra_deg = 83.632
+# position_dec_deg = 22.0145
+# fixed_offset_deg = 0.5
+
+[dataset.spectrum.maker]
+# SpectrumDatasetMaker options; "background" is intentionally unavailable.
+selection = ["counts", "exposure", "edisp"]
+containment_correction = false   # true also requires "psf" in required_irf
+use_region_center = true
+
+[dataset.spectrum.background]
+# WobbleRegionsFinder passed to ReflectedRegionsBackgroundMaker.
+n_off_regions = 3
+binsz_deg = 0.01
+
+[dataset.spectrum.background.exclusion]
+# DS9 region strings; no user-created FITS mask is needed.
+# Example: regions = ["galactic;circle(183.604,-8.708,0.5)"]
+regions = []
+# Internal mask geometry, centered on [source], used only to rasterize regions.
+mask_width_deg = 10.0
+mask_binsz_deg = 0.05
+
+# Used only when [dataset] type = "map".
+[dataset.map.maker]
+# MapDatasetMaker options; "background" is rejected.
+selection = ["counts", "exposure", "edisp", "psf"]
+
+[dataset.map.geometry]
+center_ra_deg = 83.632
+center_dec_deg = 22.0145
+frame = "icrs"
+projection = "CAR"
+width_deg = [4.0, 4.0]           # map X/Y extent
+pixel_size_deg = 0.02            # X/Y pixel size
+
+[dataset.map.irf]
+pixel_size_deg = 0.2             # binsz_irf for DL4 PSF/EDISP maps

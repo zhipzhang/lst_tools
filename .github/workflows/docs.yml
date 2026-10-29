@@ -32,9 +32,9 @@ jobs:
 
       # lstchain still pins gammapy~=1.3, but the bkg code needs FoVICRSFrame
       # (gammapy >= 2.0). Override the pin the same way the dev env does;
-      # regions is upgraded alongside since the 1.x-era pin is too old.
+      # regions is pinned alongside for consistent CI behavior.
       - name: Upgrade gammapy to 2.x
-        run: pip install --no-deps "gammapy>=2" "regions>=0.11"
+        run: pip install --no-deps "gammapy>=2" "regions==0.11"
 
       - name: Build the documentation
         run: sphinx-build -b html docs docs/_build/html
