@@ -20,7 +20,10 @@ Stages
 1. **Select runs** — nightly DataCheck statistics filtered by the
    ``[data_filter]`` cuts (and the ``[source]`` position), grouped into the
    ``[zenith_binning]`` bins. The selected tables and advanced-cut
-   diagnostics are saved under ``data_check/``.
+   diagnostics are saved under ``data_check/``. With
+   ``[data_filter] away_source = true`` the target-angle cut is replaced by
+   a catalog-separation cut (``min_distance``, ``extension_factor``), so the
+   same pass selects off runs.
 2. **DL1** (``[dl1]``) — the external input; linking is the only supported
    mode today (``dl1/<zd_bin>/``).
 3. **DL2** (``[dl2]``) — either link the official DL2, or build our own by

@@ -96,9 +96,9 @@ def create_dl2_links(
 
 def load_offrun_sources() -> tuple[CatalogSource, ...]:
     """Load the TeV catalogs used to reject source-contaminated pointings."""
-    from lst_tools.catalog import load_hawc_sources, load_hess_sources, load_lhaaso_sources
+    from lst_tools.catalog import load_tev_sources
 
-    return load_hess_sources() + load_lhaaso_sources() + load_hawc_sources()
+    return load_tev_sources()
 
 
 def save_datacheck_file(

@@ -18,11 +18,14 @@ import sys
 from collections import Counter
 from pathlib import Path
 
+import astropy.units as u
+
 if sys.version_info >= (3, 11):
     import tomllib
 else:  # pragma: no cover - Python 3.10 compatibility
     import tomli as tomllib
 
+from lst_tools.catalog import select_runs_away_from_sources
 from lst_tools.datacheck import (
     DataCheckTables,
     DataFilter,
@@ -47,6 +50,9 @@ DATACHECK_DIR = (
 )
 DATACHECK_PATTERN = "DL1_datacheck_20*.h5"
 
+DEFAULT_MIN_DISTANCE_DEG = 3.0
+DEFAULT_EXTENSION_FACTOR = 2.5
+
 
 def load_config(path: Path) -> dict:
     """Load the raw pipeline configuration from TOML (a plain dict)."""
@@ -70,13 +76,25 @@ def load_datacheck_tables(raw_config: dict) -> DataCheckTables:
 
 
 def select_runs(raw_config: dict) -> RunSelection:
-    """Stages 1-2 input: apply the data-quality cuts and assign zenith bins."""
+    """Stages 1-2 input: apply the data-quality cuts and assign zenith bins.
+
+    With ``[data_filter] away_source = true`` the target-angle cuts are
+    disabled and runs pointed near any catalog source are rejected instead,
+    so the selection holds off runs without a separate ``prepare-offruns``
+    workspace.
+    """
     source_config = SourceConfig.parse(raw_config.get("source"))
     edges = validate_zenith_bin_edges(raw_config["zenith_binning"]["edges_deg"])
     data_filter_config = raw_config.get("data_filter", {})
     cuts = dict(data_filter_config.get("cuts", {}))
     cuts["min_zenith_angle"] = edges[0]
     cuts["max_zenith_angle"] = edges[-1]
+    away_source = bool(data_filter_config.get("away_source", False))
+    if away_source:
+        # A pointing away from every catalog source cannot be inside the
+        # target-angle range, and the target itself is in the catalogs.
+        cuts["min_angle_to_source"] = 0.0
+        cuts["max_angle_to_source"] = 180.0
     data_filter = DataFilter(source_ra=source_config.ra, source_dec=source_config.dec, **cuts)
 
     tables = load_datacheck_tables(raw_config)
@@ -84,6 +102,15 @@ def select_runs(raw_config: dict) -> RunSelection:
     selected = after_basic_cuts
     if data_filter_config.get("with_advanced", False):
         selected = data_filter.apply_advanced_cuts(selected)
+    if away_source:
+        from lst_tools.catalog import load_tev_sources
+
+        selected = select_runs_away_from_sources(
+            selected,
+            load_tev_sources(),
+            min_separation=float(data_filter_config.get("min_distance", DEFAULT_MIN_DISTANCE_DEG)) * u.deg,
+            extension_factor=float(data_filter_config.get("extension_factor", DEFAULT_EXTENSION_FACTOR)),
+        )
 
     return RunSelection(
         edges=edges,

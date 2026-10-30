@@ -30,6 +30,7 @@ from matplotlib.patches import Circle
 
 from .loaders import (
     load_fermi_sources,
+    load_gammacat_sources,
     load_hawc_sources,
     load_hess_sources,
     load_lhaaso_sources,
@@ -91,6 +92,16 @@ CATALOG_STYLES: Dict[str, Dict[str, Any]] = {
         "linewidths": 1.0,
         "zorder": 4,
         "label": "HESS HGPS",
+    },
+    "gammacat": {
+        "color": "mediumorchid",
+        "marker": "v",
+        "s": 55,
+        "alpha": 0.9,
+        "edgecolors": "purple",
+        "linewidths": 1.0,
+        "zorder": 4,
+        "label": "gamma-cat",
     },
 }
 
@@ -249,3 +260,18 @@ def plot_hess_catalog(
     circle.  Works on both plain matplotlib axes and WCSAxes.
     """
     plot_sources(ax, load_hess_sources(), center, radius, label_sources=label_sources, min_extension=min_extension)
+
+
+def plot_gammacat_catalog(
+    ax: plt.Axes,
+    center: SkyCoord,
+    radius: u.Quantity,
+    label_sources: bool = True,
+    min_extension: u.Quantity = DEFAULT_MIN_EXTENSION,
+):
+    """Plot Gamma-Cat sources within ``radius`` of ``center``.
+
+    Sources with a morphological ``morph_sigma >= min_extension`` get a dashed
+    extension circle.  Works on both plain matplotlib axes and WCSAxes.
+    """
+    plot_sources(ax, load_gammacat_sources(), center, radius, label_sources=label_sources, min_extension=min_extension)

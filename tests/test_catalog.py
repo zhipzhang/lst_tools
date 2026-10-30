@@ -12,6 +12,9 @@ from lst_tools.catalog import (
     CATALOG_STYLES,
     CatalogSource,
     SkyPlotter,
+    load_gamma_cat_sources,
+    load_gammacat_sources,
+    plot_gammacat_catalog,
     plot_sources,
     select_region,
     select_runs_away_from_sources,
@@ -76,10 +79,41 @@ def test_select_runs_away_from_sources_only_applies_catalog_separation():
 
 
 def test_catalog_styles_cover_known_catalogs():
-    assert set(CATALOG_STYLES) == {"fermi", "lhaaso_km2a", "lhaaso_wcda", "hawc", "hess"}
+    assert set(CATALOG_STYLES) == {"fermi", "lhaaso_km2a", "lhaaso_wcda", "hawc", "hess", "gammacat"}
     for style in CATALOG_STYLES.values():
         for key in ("color", "marker", "s", "alpha", "zorder", "label"):
             assert key in style
+
+
+def test_load_gammacat_sources():
+    sources = load_gammacat_sources()
+    assert isinstance(sources, tuple)
+    assert len(sources) > 0
+    assert all(isinstance(s, CatalogSource) for s in sources)
+    assert all(s.catalog == "gammacat" for s in sources)
+
+    # Alias check
+    assert load_gamma_cat_sources() is sources
+
+    names = {s.name: s for s in sources}
+    assert "Crab nebula" in names
+    crab = names["Crab nebula"]
+    assert not crab.is_extended
+    assert abs(crab.coord.ra.deg - 83.633) < 0.01
+    assert abs(crab.coord.dec.deg - 22.014) < 0.01
+
+    assert "CTA 1" in names
+    cta1 = names["CTA 1"]
+    assert cta1.is_extended
+    assert cta1.extension.unit == u.deg
+    assert cta1.extension.to_value(u.deg) == pytest.approx(0.3)
+
+
+def test_plot_gammacat_catalog():
+    fig, ax = plt.subplots()
+    plot_gammacat_catalog(ax, center=CRAB, radius=2 * u.deg)
+    assert len(ax.collections) >= 1
+    plt.close(fig)
 
 
 def test_plot_sources_on_plain_axes():
