@@ -3,7 +3,7 @@
 Each catalog is loaded once (lazily and cached with ``lru_cache``).
 ``select_region`` filters any source tuple to a circular sky region.
 
-Supported catalogs: Fermi-LAT 4FGL, LHAASO 1LHAASO (KM2A/WCDA),
+Supported catalogs: Fermi-LAT 4FGL, Gamma-Cat, LHAASO 1LHAASO (KM2A/WCDA),
 HAWC 3HWC, HESS HGPS.
 """
 
@@ -17,6 +17,7 @@ from gammapy.catalog import (
     SourceCatalog1LHAASO,
     SourceCatalog3HWC,
     SourceCatalog4FGL,
+    SourceCatalogGammaCat,
     SourceCatalogHGPS,
 )
 
@@ -102,6 +103,35 @@ def load_hawc_sources() -> Tuple[CatalogSource, ...]:
 
 
 @lru_cache(maxsize=1)
+def load_gammacat_sources() -> Tuple[CatalogSource, ...]:
+    """Load the Gamma-Cat catalog; extension is the morphological sigma (``morph_sigma``)."""
+    table = SourceCatalogGammaCat().table
+    sources = []
+    for row in table:
+        size = row["morph_sigma"]
+        size2 = row["morph_sigma2"]
+        ext_candidates = []
+        for s in (size, size2):
+            if not np.ma.is_masked(s):
+                s_deg = float(s)
+                if np.isfinite(s_deg) and s_deg > 0:
+                    ext_candidates.append(s_deg)
+        extension = max(ext_candidates) * u.deg if ext_candidates else None
+        sources.append(
+            CatalogSource(
+                name=str(row["common_name"]),
+                coord=SkyCoord(ra=float(row["ra"]), dec=float(row["dec"]), unit="deg"),
+                catalog="gammacat",
+                extension=extension,
+            )
+        )
+    return tuple(sources)
+
+
+load_gamma_cat_sources = load_gammacat_sources
+
+
+@lru_cache(maxsize=1)
 def load_hess_sources() -> Tuple[CatalogSource, ...]:
     """Load the HESS HGPS catalog; the extension is the Gaussian ``Size``."""
     table = SourceCatalogHGPS().table
@@ -117,6 +147,16 @@ def load_hess_sources() -> Tuple[CatalogSource, ...]:
             )
         )
     return tuple(sources)
+
+
+@lru_cache(maxsize=1)
+def load_tev_sources() -> Tuple[CatalogSource, ...]:
+    """Load every TeV catalog used to reject source-contaminated pointings.
+
+    Concatenates HESS, LHAASO, HAWC and Gamma-Cat, so a source detected by
+    several catalogs appears once per catalog.
+    """
+    return load_hess_sources() + load_lhaaso_sources() + load_hawc_sources() + load_gammacat_sources()
 
 
 def select_region(sources: Tuple[CatalogSource, ...], center: SkyCoord, radius: u.Quantity) -> List[CatalogSource]:

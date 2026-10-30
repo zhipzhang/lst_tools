@@ -22,6 +22,15 @@ edges_deg = [0.0, 20.0, 30.0, 40.0, 50.0, 60.0, 70.0]
 # advanced cuts: derived from the cosmic-ray intensity spectrum and others
 with_advanced = false
 
+# Off-run selection: when true, keep only runs whose pointing is well away
+# from every known TeV source (HESS, LHAASO, HAWC and Gamma-Cat catalogs),
+# so a separate prepare-offruns workspace is no longer needed. The
+# [data_filter.cuts] target-angle range is then disabled, because an off run
+# cannot point at the target and away from it at the same time.
+away_source = false
+min_distance = 3.0      # deg; minimum pointing distance from a point-like source
+extension_factor = 2.5  # extended sources extend the exclusion by this times their size
+
 [data_filter.cuts]
 min_angle_to_source = 0.3   # deg
 max_angle_to_source = 0.5   # deg

@@ -6,10 +6,14 @@ __all__ = [
     "CatalogSource",
     "SkyPlotter",
     "load_fermi_sources",
+    "load_gamma_cat_sources",
+    "load_gammacat_sources",
     "load_hawc_sources",
     "load_hess_sources",
     "load_lhaaso_sources",
+    "load_tev_sources",
     "plot_fermi_catalog",
+    "plot_gammacat_catalog",
     "plot_hawc_catalog",
     "plot_hess_catalog",
     "plot_lhaaso_catalog",
@@ -22,6 +26,7 @@ _PLOT_EXPORTS = {
     "CATALOG_STYLES",
     "SkyPlotter",
     "plot_fermi_catalog",
+    "plot_gammacat_catalog",
     "plot_hawc_catalog",
     "plot_hess_catalog",
     "plot_lhaaso_catalog",
@@ -29,9 +34,12 @@ _PLOT_EXPORTS = {
 }
 _LOADER_EXPORTS = {
     "load_fermi_sources",
+    "load_gammacat_sources",
+    "load_gamma_cat_sources",
     "load_hawc_sources",
     "load_hess_sources",
     "load_lhaaso_sources",
+    "load_tev_sources",
     "select_region",
 }
 

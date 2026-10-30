@@ -1,10 +1,14 @@
 import textwrap
 from types import SimpleNamespace
 
+import astropy.units as u
 import numpy as np
 import pandas as pd
 import pytest
+from astropy.coordinates import SkyCoord
 
+import lst_tools.catalog
+from lst_tools.catalog import CatalogSource
 from lst_tools.pipeline import PipelineConfig, RunSelection
 from lst_tools.scripts import init_lstana
 
@@ -100,6 +104,78 @@ class TestSelectRuns:
         selection = init_lstana.select_runs({**MINIMAL_CONFIG, "data_filter": {"with_advanced": True, "cuts": {}}})
 
         assert selection.data_filter.advanced_calls == 1
+
+
+def make_basic_stats_frame():
+    """Two runs pointing (RA 10, dec 0) and (RA 30, dec 0), both in the bins."""
+    return pd.DataFrame(
+        {
+            "run_number": [1, 2],
+            "n_subruns": [2, 2],
+            "date": [20240101, 20240101],
+            "n_flatfield": [1, 1],
+            "n_pedestal": [1, 1],
+            "mean_ra": [10.0, 30.0],
+            "mean_dec": [0.0, 0.0],
+            "mean_cos_zd": [np.cos(np.radians(15.0)), np.cos(np.radians(25.0))],
+            "observation_time": [1800.0, 1800.0],
+            "pointing_dec_std": [0.001, 0.001],
+        }
+    )
+
+
+class TestAwaySourceSelection:
+    def test_rejects_pointings_near_sources_and_disables_target_angle_cut(self, monkeypatch):
+        tables = SimpleNamespace(statistics=make_basic_stats_frame())
+        monkeypatch.setattr(init_lstana, "load_datacheck_tables", lambda config: tables)
+        near_run_2 = (CatalogSource(name="near-run-2", coord=SkyCoord(ra=30, dec=0, unit="deg"), catalog="test"),)
+        monkeypatch.setattr(lst_tools.catalog, "load_tev_sources", lambda: near_run_2)
+
+        selection = init_lstana.select_runs({**MINIMAL_CONFIG, "data_filter": {"away_source": True}})
+
+        # Run 1 is far from the target, so it only survives because the
+        # 0.3–0.5 degree target-angle cut was disabled; run 2 points at the
+        # catalog source and is rejected.
+        assert selection.selected["run_number"].tolist() == [1]
+        assert selection.data_filter.min_angle_to_source == 0.0
+        assert selection.data_filter.max_angle_to_source == 180.0
+
+    def test_without_away_source_the_target_angle_cut_still_applies(self, monkeypatch):
+        tables = SimpleNamespace(statistics=make_basic_stats_frame())
+        monkeypatch.setattr(init_lstana, "load_datacheck_tables", lambda config: tables)
+
+        selection = init_lstana.select_runs(MINIMAL_CONFIG)
+
+        assert selection.selected["run_number"].tolist() == []
+        assert selection.data_filter.max_angle_to_source == 0.5
+
+    @pytest.mark.parametrize(
+        ("data_filter", "min_distance", "extension_factor"),
+        [
+            ({"away_source": True}, 3.0, 2.5),
+            ({"away_source": True, "min_distance": 0.7, "extension_factor": 4.0}, 0.7, 4.0),
+        ],
+    )
+    def test_distance_options_reach_the_catalog_separation(
+        self, monkeypatch, data_filter, min_distance, extension_factor
+    ):
+        tables = SimpleNamespace(statistics=make_stats_frame())
+        monkeypatch.setattr(init_lstana, "load_datacheck_tables", lambda config: tables)
+        monkeypatch.setattr(init_lstana, "DataFilter", FakeDataFilter)
+        monkeypatch.setattr(lst_tools.catalog, "load_tev_sources", lambda: ())
+        captured = {}
+
+        def fake_away(statistics, sources, *, min_separation, extension_factor):
+            captured["min_separation"] = min_separation
+            captured["extension_factor"] = extension_factor
+            return statistics
+
+        monkeypatch.setattr(init_lstana, "select_runs_away_from_sources", fake_away)
+
+        init_lstana.select_runs({**MINIMAL_CONFIG, "data_filter": data_filter})
+
+        assert captured["min_separation"].to_value(u.deg) == min_distance
+        assert captured["extension_factor"] == extension_factor
 
 
 class TestBuildProducers:
