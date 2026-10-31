@@ -219,13 +219,13 @@ class DL2Producer(DLProducer):
         groups: dict[Path, list[Path]] = {}
         for dl1_file in dl1_files:
             nsb_level = LSTDL1Event(str(dl1_file)).nsb_level
-            model_directory = Path(rf_template.replace(NSB_LEVEL_VARIABLE, f"{nsb_level:g}"))
+            model_directory = Path(rf_template.replace(NSB_LEVEL_VARIABLE, f"{nsb_level:.2f}"))
             groups.setdefault(model_directory, []).append(dl1_file)
         return groups
 
 
 def _mc_campaign_directory(directory_template: str, nsb_level: float) -> Path:
-    directory = Path(directory_template.replace(NSB_LEVEL_VARIABLE, f"{nsb_level:g}")).expanduser()
+    directory = Path(directory_template.replace(NSB_LEVEL_VARIABLE, f"{nsb_level:.2f}")).expanduser()
     return directory if directory.is_absolute() else MC_DL2_PATH / directory
 
 
