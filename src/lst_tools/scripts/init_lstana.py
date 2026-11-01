@@ -121,21 +121,51 @@ def select_runs(raw_config: dict) -> RunSelection:
     )
 
 
+def selection_stem(raw_config: dict) -> str:
+    """File-name stem of one analysis's datacheck outputs."""
+    source_config = SourceConfig.parse(raw_config.get("source"))
+    return "_".join(source_config.name.split()) + f"_ra_{source_config.ra}_dec_{source_config.dec}"
+
+
+def selection_file(raw_config: dict, output_root: Path) -> Path:
+    """The saved run selection of this analysis under ``data_check/``."""
+    return output_root / "data_check" / f"data_check_{selection_stem(raw_config)}.h5"
+
+
+def load_saved_selection(raw_config: dict, output_root: Path) -> RunSelection | None:
+    """The selection an earlier run saved, or ``None`` when there is none.
+
+    The file holds the already-selected runs, so neither the nightly
+    datacheck files nor the cuts have to be applied again; only the zenith
+    bins are assigned, from the configured edges. ``after_basic_cuts`` stays
+    ``None`` — the pre-cut table is not saved — so the advanced-cut plots
+    are only possible for a freshly computed selection.
+    """
+    path = selection_file(raw_config, output_root)
+    if not path.is_file():
+        return None
+    edges = validate_zenith_bin_edges(raw_config["zenith_binning"]["edges_deg"])
+    tables = DataCheckTables.from_files([str(path)])
+    return RunSelection(
+        edges=edges,
+        selected=assign_zenith_bins(tables.statistics, edges),
+        tables=tables,
+    )
+
+
 def save_datacheck_outputs(selection: RunSelection, raw_config: dict, output_dir: Path) -> None:
     """Save the selected DataCheck tables and advanced-cut diagnostic plots."""
     import matplotlib.pyplot as plt
 
     from lst_tools.datacheck import plot_advanced_distributions
 
-    source_config = SourceConfig.parse(raw_config.get("source"))
-    stem = "_".join(source_config.name.split()) + f"_ra_{source_config.ra}_dec_{source_config.dec}"
     output_dir.mkdir(parents=True, exist_ok=True)
     if selection.tables is None:
         raise ValueError("save_datacheck_outputs requires the datacheck tables from select_runs")
 
     run_numbers = selection.selected["run_number"].tolist()
     selection.tables.select_runs(run_numbers).save_to_h5file(
-        output_dir / f"data_check_{stem}.h5",
+        output_dir / f"data_check_{selection_stem(raw_config)}.h5",
         overwrite=True,
     )
 
@@ -184,6 +214,11 @@ def build_parser() -> argparse.ArgumentParser:
         default="all",
         help="Pipeline stage to execute (default: all)",
     )
+    parser.add_argument(
+        "--refresh-selection",
+        action="store_true",
+        help="Recompute the run selection instead of loading the one saved under data_check/",
+    )
     return parser
 
 
@@ -198,9 +233,13 @@ def main() -> None:
     pipeline_config = PipelineConfig.parse(raw_config)
     output_root = args.output.resolve()
 
-    selection = select_runs(raw_config)  # 1-2
-    if args.stage in ("all", "dl1"):
-        save_datacheck_outputs(selection, raw_config, output_root / "data_check")
+    selection = None if args.refresh_selection else load_saved_selection(raw_config, output_root)
+    if selection is None:
+        selection = select_runs(raw_config)  # 1-2
+        if args.stage in ("all", "dl1"):
+            save_datacheck_outputs(selection, raw_config, output_root / "data_check")
+    else:
+        print(f"Loaded the saved run selection from {selection_file(raw_config, output_root)}")
 
     counts: Counter = Counter()
     for producer in make_producers(pipeline_config, raw_config, output_root, stage=args.stage):  # 3-5

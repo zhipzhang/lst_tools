@@ -39,6 +39,22 @@ class IRFGenerator:
         with open(config_file) as file_handle:
             return json.load(file_handle) == config
 
+    def _check_node(self, node: IRFNode) -> None:
+        """Refuse a node whose cuts differ from the generator's config.
+
+        The gammaness selection and the IRF type are part of the node's
+        output path, so a mismatch would write an IRF under a label the
+        reduction does not read.
+        """
+        event_filter = self.irf_config.event_filter
+        expected = (self.irf_config.irf_type, event_filter.gh_type, event_filter.gh_value)
+        actual = (node.irf_type, node.gh_type, node.gh_value)
+        if actual != expected:
+            raise ValueError(
+                f"IRF node {node.pointing_name} is (irf_type, gh_type, gh_value) = {actual},"
+                f" but the generator is configured for {expected}"
+            )
+
     def make_irf_node(self, node: IRFNode) -> Path:
         """Create the node's IRF if needed and return its FITS file path.
 
@@ -46,6 +62,7 @@ class IRFGenerator:
         config (event selection, IRF type, binning, gammaness mode); otherwise
         it is regenerated.
         """
+        self._check_node(node)
         irf_file = self.irf_file(node)
         config = self.irf_config.to_lstchain_config()
         if self._is_fresh(node, config):

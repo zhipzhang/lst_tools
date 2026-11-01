@@ -61,6 +61,22 @@ def test_from_cuts_sets_the_filters_and_the_gammaness_mode():
     )
 
 
+def test_gammaness_selection_is_named_after_its_mode_and_value():
+    fixed = EventFilter.from_cuts(80, 0.2, gh_cut=0.5)
+    assert fixed.gh_type == "cut"
+    assert fixed.gh_value == pytest.approx(0.5)
+    assert fixed.cut_label == "ghcut0.5"
+
+    quantile = EventFilter.from_cuts(80, 0.2, gh_efficiency=0.7)
+    assert quantile.gh_type == "efficiency"
+    assert quantile.gh_value == pytest.approx(0.7)
+    assert quantile.cut_label == "gheff0.7"
+
+
+def test_cut_label_drops_float_trailing_zeros():
+    assert EventFilter.from_cuts(80, 0.2, gh_efficiency=0.80).cut_label == "gheff0.8"
+
+
 def test_fixed_mode_applies_quality_gammaness_intensity_and_leakage_cuts(events):
     event_filter = EventFilter.from_cuts(50, 0.2, gh_cut=0.8)
 

@@ -28,8 +28,8 @@ with_advanced = false
 # [data_filter.cuts] target-angle range is then disabled, because an off run
 # cannot point at the target and away from it at the same time.
 away_source = false
-min_distance = 3.0      # deg; minimum pointing distance from a point-like source
-extension_factor = 2.5  # extended sources extend the exclusion by this times their size
+min_distance = 3.0     # deg; minimum pointing distance from a point-like source
+extension_factor = 2.5 # extended sources extend the exclusion by this times their size
 
 [data_filter.cuts]
 min_angle_to_source = 0.3   # deg
@@ -77,19 +77,20 @@ interp_method = "linear"
 use_nearest_irf_node = false
 overwrite = false
 
+# MC campaign the IRFs are generated from: relative to
+# /fefs/aswg/data/mc/DL2/AllSky (absolute paths are also accepted), with
+# $NSB_LEVEL replaced from each real DL2 file's provenance.
+mc_dl2_directory = "20250212_v0.10.17_allsky_interp_dl2_irfs_nsb_$NSB_LEVEL"
+
 # Event selection shared by IRF generation and DL3 reduction: the reduction
 # takes its quality filters from here and the gammaness cut from the IRF
 # itself, so data and IRFs can never disagree. Exactly one of gh_cut (fixed
 # threshold) or gh_efficiency (energy-dependent quantile cuts) must be given.
-[dl3.build.irf]
-# Relative to /fefs/aswg/data/mc/DL2/AllSky; absolute paths are also accepted.
-# $NSB_LEVEL is replaced from each real DL2 file's provenance.
-mc_dl2_directory = "20250212_v0.10.17_allsky_interp_dl2_irfs_nsb_$NSB_LEVEL"
 intensity_cut = 80
 leakage_cut = 1.0
 gh_efficiency = 0.7
 #gh_cut = 0.7                   # alternative to gh_efficiency
-point_like = false              # true for point-like IRFs; false for full-enclosure
+point_like = false # true for point-like IRFs; false for full-enclosure
 
 #[dl3.link]
 #output_directory = "/data/linked/dl3"   # default: <output>/dl3
@@ -99,15 +100,14 @@ point_like = false              # true for point-like IRFs; false for full-enclo
 # When enabled = true, compute-heavy stages (like DL2 building) submit parallel
 # batch jobs to the SLURM cluster via simple_slurm rather than running sequentially.
 [slurm]
-enabled = false
-partition = "short"
+enabled = true
+partition = "long"
 #account = "aswg"
 log_directory = "slurm_logs"
-#env_setup = "conda activate lst-env"
+env_setup = "conda activate lst-env"
 
 [slurm.dl2]
-runs_per_job = 5      # Max number of DL1 runs processed by a single SLURM job
-cpus_per_task = 4     # Number of CPU cores allocated per job
-mem = "8GB"           # Memory limit per job
-time = "02:00:00"     # Walltime limit (hh:mm:ss)
-
+runs_per_job = 3  # Max number of DL1 runs processed by a single SLURM job
+cpus_per_task = 8 # Number of CPU cores allocated per job
+mem = "40GB"      # Memory limit per job
+time = "02:00:00" # Walltime limit (hh:mm:ss)

@@ -63,8 +63,8 @@ The stages:
 
 1. **Select runs** — nightly DataCheck statistics filtered by the
    `[data_filter]` cuts (and the `[source]` position), grouped into the
-   `[zenith_binning]` bins. The selected tables and advanced-cut
-   diagnostics are saved under `data_check/`.
+   `[zenith_binning]` bins. The selected runs are saved under `data_check/`
+   and reused by later runs; `--refresh-selection` recomputes them.
 2. **DL1** (`[dl1]`) — the external input; linking is the only supported
    mode today (`dl1/<zd_bin>/`).
 3. **DL2** (`[dl2]`) — either link the official DL2, or build our own by
@@ -74,21 +74,23 @@ The stages:
 4. **DL3** (`[dl3]`) — either link existing DL3 products (newest
    version, optionally narrowed by `[dl3.link] irf_type`), or build them:
    IRFs are generated from the MC test dataset matching each DL2 file's
-   provenance (`[dl3.build.irf]`), then every run is reduced to a DL3
+   provenance (`[dl3.build]`), then every run is reduced to a DL3
    FITS observation, interpolating the IRFs to the run's pointing.
 
-The MC campaign comes from `[dl3.build.irf] mc_dl2_directory`, a template
+The MC campaign comes from `[dl3.build] mc_dl2_directory`, a template
 whose `$NSB_LEVEL` is replaced from each DL2 file's provenance. Relative
 paths resolve below `/fefs/aswg/data/mc/DL2/AllSky`; absolute paths are also
 accepted. `point_like = true` selects `Gamma` MC and point-like IRFs, while
 the default `false` selects `GammaDiffuse` and full-enclosure IRFs.
 
-The event selection for built DL3 comes from `[dl3.build.irf]`: the
+The event selection for built DL3 comes from `[dl3.build]`: the
 quality filters (`intensity_cut`, `leakage_cut`) are passed to the
 reduction and the gammaness cut (`gh_cut` or `gh_efficiency`) is carried
 inside the IRFs, so data and IRFs always agree. Generated IRFs are stored
-under `irfs/nsb_<nsb>/dec_<line>/<irf_type>/`, with `<irf_type>` explicitly
-set to `point` or `full-enclosure`.
+under `irfs/nsb_<nsb>/dec_<line>/<irf_type>/<cut_label>/`, with `<irf_type>`
+explicitly set to `point` or `full-enclosure` and `<cut_label>` naming the
+gammaness selection (`gheff0.7` for an efficiency, `ghcut0.7` for a fixed
+cut), so IRFs built with different cuts do not overwrite each other.
 
 Zenith bins include their lower edge and exclude their upper edge; the
 last bin also includes its upper edge. Reruns are incremental: existing

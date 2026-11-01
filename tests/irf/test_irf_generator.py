@@ -1,4 +1,5 @@
 import json
+from dataclasses import replace
 from pathlib import Path
 
 import pytest
@@ -12,7 +13,16 @@ from lst_tools.irf.irf_generator import IRFGenerator
 def node(tmp_path):
     dl2_path = tmp_path / "dl2_mc_merged.h5"
     dl2_path.touch()
-    return IRFNode(nsb_level=0.81, dec_line=2276, zenith=10, azimuth=20, dl2_path=dl2_path)
+    # Matches fixed_config(): full-enclosure IRFs at a fixed 0.5 gammaness cut.
+    return IRFNode(
+        nsb_level=0.81,
+        dec_line=2276,
+        zenith=10,
+        azimuth=20,
+        dl2_path=dl2_path,
+        gh_type="cut",
+        gh_value=0.5,
+    )
 
 
 @pytest.fixture
@@ -38,7 +48,9 @@ def test_make_irf_node_writes_irf_config_and_log_alongside(tmp_path, node, run_i
 
     irf_file = generator.make_irf_node(node)
 
-    assert irf_file == (tmp_path / "irfs/nsb_0.81/dec_2276/full-enclosure/theta_10_az_20.irf.fits.gz").resolve()
+    assert (
+        irf_file == (tmp_path / "irfs/nsb_0.81/dec_2276/full-enclosure/ghcut0.5/theta_10_az_20.irf.fits.gz").resolve()
+    )
     assert irf_file.is_file()
 
     config_file = irf_file.parent / "theta_10_az_20.config.json"
@@ -69,7 +81,8 @@ def test_irf_is_regenerated_when_the_config_changes(tmp_path, node, run_irf):
     generator = IRFGenerator(tmp_path / "irfs", fixed_config())
     generator.make_irf_node(node)
 
-    new_config = IRFConfig(event_filter=EventFilter.from_cuts(80, 0.2, gh_cut=0.9))
+    # Same cuts and IRF type, different quality filter: same file, new content.
+    new_config = IRFConfig(event_filter=EventFilter.from_cuts(50, 0.2, gh_cut=0.5))
     IRFGenerator(tmp_path / "irfs", new_config).make_irf_node(node)
 
     assert len(run_irf) == 2
@@ -80,16 +93,40 @@ def test_irf_is_regenerated_when_point_like_changes(tmp_path, node, run_irf):
     generator.make_irf_node(node)
 
     point_like_config = IRFConfig(event_filter=EventFilter.from_cuts(80, 0.2, gh_cut=0.5), point_like=True)
-    IRFGenerator(tmp_path / "irfs", point_like_config).make_irf_node(node)
+    point_node = replace(node, irf_type="point")
+    IRFGenerator(tmp_path / "irfs", point_like_config).make_irf_node(point_node)
 
     assert len(run_irf) == 2
+
+
+def test_irf_of_another_gammaness_selection_gets_its_own_directory(tmp_path, node, run_irf):
+    generator = IRFGenerator(tmp_path / "irfs", fixed_config())
+    efficiency_config = IRFConfig(event_filter=EventFilter.from_cuts(80, 0.2, gh_efficiency=0.7))
+
+    fixed_file = generator.make_irf_node(node)
+    efficiency_file = IRFGenerator(tmp_path / "irfs", efficiency_config).make_irf_node(
+        replace(node, gh_type="efficiency", gh_value=0.7)
+    )
+
+    assert fixed_file.parent.name == "ghcut0.5"
+    assert efficiency_file.parent.name == "gheff0.7"
+    assert len(run_irf) == 2
+
+
+def test_node_cuts_must_match_the_generator_config(tmp_path, node, run_irf):
+    generator = IRFGenerator(tmp_path / "irfs", fixed_config())
+
+    with pytest.raises(ValueError, match=r"generator is configured for"):
+        generator.make_irf_node(replace(node, gh_value=0.9))
+
+    assert run_irf == []
 
 
 def test_quantile_mode_marks_energy_dependent_gh_in_the_config(tmp_path, node, run_irf):
     irf_config = IRFConfig(event_filter=EventFilter.from_cuts(80, 0.2, gh_efficiency=0.7))
     generator = IRFGenerator(tmp_path / "irfs", irf_config)
 
-    irf_file = generator.make_irf_node(node)
+    irf_file = generator.make_irf_node(replace(node, gh_type="efficiency", gh_value=0.7))
 
     with open(irf_file.parent / "theta_10_az_20.config.json") as file_handle:
         config = json.load(file_handle)
