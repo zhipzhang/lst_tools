@@ -1,4 +1,5 @@
 import textwrap
+from collections import Counter
 from types import SimpleNamespace
 
 import astropy.units as u
@@ -321,4 +322,59 @@ class TestMain:
 
         assert len(datacheck_calls) == (1 if should_save_datacheck else 0)
         assert requested_stages == [stage]
+
+    def test_main_stops_at_slurm_jobs(self, tmp_path, monkeypatch, capsys):
+        config_path = tmp_path / "config.toml"
+        config_path.write_text(
+            textwrap.dedent(
+                """
+                [source]
+                ra = 83.632
+                dec = 22.0145
+                name = "Crab Nebula"
+
+                [zenith_binning]
+                edges_deg = [0.0, 20.0]
+
+                [data_filter.cuts]
+                first_date = 20220101
+                last_date = 20221231
+                """
+            )
+        )
+        empty_selection = RunSelection(
+            edges=(0.0, 20.0),
+            selected=pd.DataFrame({"run_number": [], "date": [], "zenith_bin": []}),
+        )
+        monkeypatch.setattr(init_lstana, "select_runs", lambda raw_config: empty_selection)
+        monkeypatch.setattr(init_lstana, "save_datacheck_outputs", lambda *args: None)
+
+        dl2_called = []
+        dl3_called = []
+        p_dl2 = SimpleNamespace(
+            level="dl2",
+            config=SimpleNamespace(enabled=True),
+            produce=lambda selection: dl2_called.append(1) or Counter({"dl2:slurm_jobs": 2}),
+        )
+        p_dl3 = SimpleNamespace(
+            level="dl3",
+            config=SimpleNamespace(enabled=True),
+            produce=lambda selection: dl3_called.append(1) or Counter(),
+        )
+
+        monkeypatch.setattr(
+            init_lstana,
+            "make_producers",
+            lambda pipeline_config, raw_config, output_root, stage="all": [p_dl2, p_dl3],
+        )
+
+        monkeypatch.setattr("sys.argv", ["init_lstana", str(config_path), "-o", str(tmp_path / "out")])
+
+        init_lstana.main()
+
+        assert len(dl2_called) == 1
+        assert len(dl3_called) == 0
+        stdout = capsys.readouterr().out
+        assert "Stopped pipeline after dl2" in stdout
+
 

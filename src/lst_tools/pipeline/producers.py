@@ -16,7 +16,7 @@ from abc import ABC
 from collections import Counter
 from collections.abc import Sequence
 from pathlib import Path
-from typing import ClassVar, Literal
+from typing import Any, ClassVar, Literal
 
 from lst_tools.dl1.dl1event import LSTDL1Event, dl1_to_dl2_batch
 from lst_tools.dl2 import LSTDL2EventTable
@@ -40,6 +40,7 @@ from .configs import (
     SourceConfig,
 )
 from .selection import RunSelection
+from .slurm_config import SlurmConfig
 
 Level = Literal["dl1", "dl2", "dl3"]
 
@@ -76,9 +77,10 @@ class DLProducer(ABC):
 
     level: ClassVar[Level]
 
-    def __init__(self, config, output_root: Path) -> None:
+    def __init__(self, config, output_root: Path, slurm_config: SlurmConfig | None = None) -> None:
         self.config = config
         self.output_root = output_root
+        self.slurm_config = slurm_config
 
     @property
     def output_dir(self) -> Path:
@@ -101,6 +103,8 @@ class DLProducer(ABC):
             return Counter()
         if self.config.source == "link":
             return self.link(selection)
+        if self.slurm_config and self.slurm_config.enabled:
+            return self.slurm_build(selection, self.slurm_config)
         return self.build(selection)
 
     # ---- operations: override only what the level supports ------------
@@ -109,6 +113,9 @@ class DLProducer(ABC):
 
     def build(self, selection: RunSelection) -> Counter:
         raise NotImplementedError(f"{self.level}: building is not supported yet")
+
+    def slurm_build(self, selection: RunSelection, slurm_config: SlurmConfig) -> Counter:
+        raise NotImplementedError(f"{self.level}: SLURM building is not supported yet")
 
     # ---- linking machinery, shared by all levels ----------------------
     def _link_selection(self, selection: RunSelection) -> Counter:
@@ -154,14 +161,91 @@ class DL1Producer(DLProducer):
 
 class DL2Producer(DLProducer):
     level: ClassVar[Level] = "dl2"
+    worker_command: ClassVar[str] = "lst-dl1-to-dl2"
     config: DL2ProducerConfig
 
-    def __init__(self, config: DL2ProducerConfig, output_root: Path, dl1_directory: str | Path | None = None):
-        super().__init__(config, output_root)
+    def __init__(
+        self,
+        config: DL2ProducerConfig,
+        output_root: Path,
+        dl1_directory: str | Path | None = None,
+        slurm_config: SlurmConfig | None = None,
+    ):
+        super().__init__(config, output_root, slurm_config=slurm_config)
         self.dl1_directory = Path(dl1_directory) if dl1_directory is not None else output_root / "dl1"
 
     def link(self, selection: RunSelection) -> Counter:
         return self._link_selection(selection)
+
+    def slurm_build(self, selection: RunSelection, slurm_config: SlurmConfig) -> Counter:
+        """Submit DL2 batch reconstruction jobs to SLURM via simple_slurm."""
+        from simple_slurm import Slurm
+
+        build_options = self.config.build
+        if build_options is None or build_options.rf_directory is None:  # pragma: no cover - guarded by config parsing
+            raise ValueError("dl2: building requires [dl2.build] with rf_directory")
+        rf_template = build_options.rf_directory
+        overwrite = build_options.overwrite
+
+        counts: Counter = Counter()
+        if not self.dl1_directory.is_dir():
+            warnings.warn(f"dl2: no DL1 directory at {self.dl1_directory}; skipping", stacklevel=2)
+            return counts
+
+        log_dir = self.output_root / slurm_config.log_directory
+        log_dir.mkdir(parents=True, exist_ok=True)
+
+        slurm_kwargs: dict[str, Any] = {
+            "partition": slurm_config.partition,
+            "cpus_per_task": slurm_config.dl2.cpus_per_task,
+            "mem": slurm_config.dl2.mem,
+            "time": slurm_config.dl2.time,
+            "output": str(log_dir / "%x_%j.out"),
+            "error": str(log_dir / "%x_%j.err"),
+        }
+        if slurm_config.account is not None:
+            slurm_kwargs["account"] = slurm_config.account
+        slurm_kwargs.update(slurm_config.extra_args)
+        slurm_kwargs.update(slurm_config.dl2.extra_args)
+
+        runs_per_job = slurm_config.dl2.runs_per_job
+
+        for dl1_dir in sorted(self.dl1_directory.iterdir()):
+            if not dl1_dir.is_dir():
+                continue
+            output_dir = self.output_dir / dl1_dir.name
+            dl1_files = sorted(dl1_dir.glob("dl1_*.h5"))
+            pending = [
+                dl1_file
+                for dl1_file in dl1_files
+                if overwrite or not (output_dir / dl1_file.name.replace("dl1", "dl2", 1)).exists()
+            ]
+            counts["dl2:existing"] += len(dl1_files) - len(pending)
+            if not pending:
+                continue
+
+            batch_idx = 1
+            for model_directory, group in self._group_by_model_directory(rf_template, pending).items():
+                for i in range(0, len(group), runs_per_job):
+                    chunk = group[i : i + runs_per_job]
+                    job_name = f"lst_dl2_{dl1_dir.name}_{batch_idx}"
+                    batch_idx += 1
+                    slurm = Slurm(**{**slurm_kwargs, "job_name": job_name})
+                    slurm.set_shell("/bin/bash")
+                    if slurm_config.env_setup:
+                        slurm.add_cmd(slurm_config.env_setup)
+
+                    files_arg = " ".join(f'"{f}"' for f in chunk)
+                    cmd = f'{self.worker_command} --input {files_arg} --output-dir "{output_dir}" --model-dir "{model_directory}"'
+                    if overwrite:
+                        cmd += " --overwrite"
+                    slurm.add_cmd(cmd)
+
+                    slurm.sbatch()
+                    counts["dl2:slurm_jobs"] += 1
+                    counts["dl2:slurm_runs"] += len(chunk)
+
+        return counts
 
     def build(self, selection: RunSelection) -> Counter:
         """Reconstruct DL2 from the linked DL1 files, per zenith bin.

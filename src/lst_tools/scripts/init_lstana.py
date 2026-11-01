@@ -154,7 +154,12 @@ def make_producers(
     """The producer chain; each level finds its input in the previous one."""
     source_config = SourceConfig.parse(raw_config.get("source"))
     dl1 = DL1Producer(pipeline_config.dl1, output_root)
-    dl2 = DL2Producer(pipeline_config.dl2, output_root, dl1_directory=dl1.output_dir)
+    dl2 = DL2Producer(
+        pipeline_config.dl2,
+        output_root,
+        dl1_directory=dl1.output_dir,
+        slurm_config=pipeline_config.slurm,
+    )
     dl3 = DL3Producer(pipeline_config.dl3, output_root, source=source_config, dl2_directory=dl2.output_dir)
     producers = [dl1, dl2, dl3]
     if stage == "all":
@@ -201,7 +206,17 @@ def main() -> None:
     for producer in make_producers(pipeline_config, raw_config, output_root, stage=args.stage):  # 3-5
         if not producer.config.enabled:
             continue
-        counts += producer.produce(selection)
+        stage_counts = producer.produce(selection)
+        counts += stage_counts
+
+        slurm_jobs = stage_counts.get(f"{producer.level}:slurm_jobs", 0)
+        if slurm_jobs > 0:
+            print(
+                f"\nStopped pipeline after {producer.level}: "
+                f"{slurm_jobs} SLURM job(s) submitted. "
+                f"Subsequent data levels cannot run until {producer.level} finishes."
+            )
+            break
 
     print(f"Selected {len(list(selection))} runs")
     for item, count in sorted(counts.items()):
