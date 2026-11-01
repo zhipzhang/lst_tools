@@ -13,7 +13,7 @@ with a warning, so a config can carry both blocks while flipping
 """
 
 import warnings
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, ClassVar, Generic, Literal, Protocol, Self, TypeVar
 
@@ -301,17 +301,21 @@ class SourceConfig:
             raise ConfigError(f"[source] is missing required key {missing}") from missing
 
 
+from .slurm_config import SlurmConfig
+
+
 @dataclass(frozen=True)
 class PipelineConfig:
-    """The three producer configs, parsed from the whole pipeline config dict."""
+    """The producer configs, parsed from the whole pipeline config dict."""
 
     dl1: DL1ProducerConfig
     dl2: DL2ProducerConfig
     dl3: DL3ProducerConfig
+    slurm: SlurmConfig = field(default_factory=SlurmConfig)
 
     @classmethod
     def parse(cls, raw_config: dict) -> "PipelineConfig":
-        """Parse the ``[dl1]``/``[dl2]``/``[dl3]`` sections of the raw TOML config.
+        """Parse the ``[dl1]``/``[dl2]``/``[dl3]`` and optional ``[slurm]`` sections.
 
         Raises ConfigError for malformed sections and for the removed
         top-level ``[irf]`` section (it moved under ``[dl3.build.irf]``).
@@ -325,4 +329,5 @@ class PipelineConfig:
             dl1=DL1ProducerConfig.parse(raw_config.get("dl1")),
             dl2=DL2ProducerConfig.parse(raw_config.get("dl2")),
             dl3=DL3ProducerConfig.parse(raw_config.get("dl3")),
+            slurm=SlurmConfig.parse(raw_config.get("slurm")),
         )

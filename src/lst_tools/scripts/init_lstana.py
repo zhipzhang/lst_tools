@@ -145,13 +145,26 @@ def save_datacheck_outputs(selection: RunSelection, raw_config: dict, output_dir
         plt.close(figure)
 
 
-def make_producers(pipeline_config: PipelineConfig, raw_config: dict, output_root: Path) -> list[DLProducer]:
+def make_producers(
+    pipeline_config: PipelineConfig,
+    raw_config: dict,
+    output_root: Path,
+    stage: str = "all",
+) -> list[DLProducer]:
     """The producer chain; each level finds its input in the previous one."""
     source_config = SourceConfig.parse(raw_config.get("source"))
     dl1 = DL1Producer(pipeline_config.dl1, output_root)
-    dl2 = DL2Producer(pipeline_config.dl2, output_root, dl1_directory=dl1.output_dir)
+    dl2 = DL2Producer(
+        pipeline_config.dl2,
+        output_root,
+        dl1_directory=dl1.output_dir,
+        slurm_config=pipeline_config.slurm,
+    )
     dl3 = DL3Producer(pipeline_config.dl3, output_root, source=source_config, dl2_directory=dl2.output_dir)
-    return [dl1, dl2, dl3]
+    producers = [dl1, dl2, dl3]
+    if stage == "all":
+        return producers
+    return [p for p in producers if p.level == stage]
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -164,6 +177,12 @@ def build_parser() -> argparse.ArgumentParser:
         type=Path,
         default=Path.cwd(),
         help="Analysis output directory (default: current directory)",
+    )
+    parser.add_argument(
+        "--stage",
+        choices=["all", "dl1", "dl2", "dl3"],
+        default="all",
+        help="Pipeline stage to execute (default: all)",
     )
     return parser
 
@@ -180,13 +199,24 @@ def main() -> None:
     output_root = args.output.resolve()
 
     selection = select_runs(raw_config)  # 1-2
-    save_datacheck_outputs(selection, raw_config, output_root / "data_check")
+    if args.stage in ("all", "dl1"):
+        save_datacheck_outputs(selection, raw_config, output_root / "data_check")
 
     counts: Counter = Counter()
-    for producer in make_producers(pipeline_config, raw_config, output_root):  # 3-5
+    for producer in make_producers(pipeline_config, raw_config, output_root, stage=args.stage):  # 3-5
         if not producer.config.enabled:
             continue
-        counts += producer.produce(selection)
+        stage_counts = producer.produce(selection)
+        counts += stage_counts
+
+        slurm_jobs = stage_counts.get(f"{producer.level}:slurm_jobs", 0)
+        if slurm_jobs > 0:
+            print(
+                f"\nStopped pipeline after {producer.level}: "
+                f"{slurm_jobs} SLURM job(s) submitted. "
+                f"Subsequent data levels cannot run until {producer.level} finishes."
+            )
+            break
 
     print(f"Selected {len(list(selection))} runs")
     for item, count in sorted(counts.items()):

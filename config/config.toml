@@ -94,3 +94,20 @@ point_like = false              # true for point-like IRFs; false for full-enclo
 #[dl3.link]
 #output_directory = "/data/linked/dl3"   # default: <output>/dl3
 #irf_type = "full-enclosure"     # or "point"; omit to link both
+
+# Optional SLURM execution:
+# When enabled = true, compute-heavy stages (like DL2 building) submit parallel
+# batch jobs to the SLURM cluster via simple_slurm rather than running sequentially.
+[slurm]
+enabled = false
+partition = "short"
+#account = "aswg"
+log_directory = "slurm_logs"
+#env_setup = "conda activate lst-env"
+
+[slurm.dl2]
+runs_per_job = 5      # Max number of DL1 runs processed by a single SLURM job
+cpus_per_task = 4     # Number of CPU cores allocated per job
+mem = "8GB"           # Memory limit per job
+time = "02:00:00"     # Walltime limit (hh:mm:ss)
+

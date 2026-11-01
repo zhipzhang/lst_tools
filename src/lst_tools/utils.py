@@ -59,6 +59,49 @@ def altaz_to_icrs(
         return altaz.icrs
 
 
+def icrs_to_altaz(
+    time: np.ndarray | Time,
+    ra: np.ndarray | u.Quantity,
+    dec: np.ndarray | u.Quantity,
+    location: EarthLocation = LST_LOCATION,
+    *,
+    time_resolution: u.Quantity = DEFAULT_TIME_RESOLUTION,
+):
+    """
+    Transform event-wise ICRS coordinates to AltAz.
+
+    Parameters
+    ----------
+    time : np.ndarray | Time
+        Event times.
+    ra : np.ndarray | u.Quantity
+        Right ascension. Arrays without units are interpreted as degrees.
+    dec : np.ndarray | u.Quantity
+        Declination. Arrays without units are interpreted as degrees.
+    location : EarthLocation, optional
+        Location of the observatory.
+    time_resolution : u.Quantity, optional
+        Time resolution for the astrometric interpolation.
+
+    Returns
+    -------
+    SkyCoord
+        AltAz coordinates.
+
+    """
+    if isinstance(time, np.ndarray):
+        time = Time(time, format="unix")
+    if not isinstance(ra, u.Quantity):
+        ra = ra * u.deg
+    if not isinstance(dec, u.Quantity):
+        dec = dec * u.deg
+
+    icrs = SkyCoord(ra=ra, dec=dec, frame="icrs")
+    altaz = AltAz(obstime=time, location=location)
+    with erfa_astrom.set(ErfaAstromInterpolator(time_resolution=time_resolution)):
+        return icrs.transform_to(altaz)
+
+
 def mean_direction(coordinates):
     """
     Return the spherical mean of a set of ICRS directions.

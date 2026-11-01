@@ -21,6 +21,8 @@ from lst_tools.pipeline import (
     DL3Producer,
     DL3ProducerConfig,
     RunSelection,
+    SlurmConfig,
+    SlurmDL2Config,
     SourceConfig,
 )
 
@@ -328,6 +330,91 @@ class TestDL2Producer:
             counts = producer.produce(make_selection([RUN_10623]))
 
         assert counts == {}
+
+    def test_slurm_build_submits_jobs_and_uses_worker_command(self, tmp_path, monkeypatch):
+        files = self._make_dl1_tree(tmp_path, 10001, 10002, 10003)
+        config = DL2ProducerConfig(
+            enabled=True,
+            source="build",
+            build=DL2BuildOptions(rf_directory="/models/nsb_tuning_0.22/dec_347"),
+        )
+        slurm_cfg = SlurmConfig(
+            enabled=True,
+            partition="short",
+            account="aswg",
+            env_setup="conda activate lst-env",
+            dl2=SlurmDL2Config(runs_per_job=2),
+        )
+        producer = DL2Producer(config, tmp_path / "out", slurm_config=slurm_cfg)
+
+        submitted_scripts = []
+        counter = [0]
+
+        def fake_sbatch(self_slurm, *args, **kwargs):
+            submitted_scripts.append(self_slurm.script())
+            counter[0] += 1
+            return counter[0]
+
+        import simple_slurm
+
+        monkeypatch.setattr(simple_slurm.Slurm, "sbatch", fake_sbatch)
+
+        counts = producer.produce(make_selection([RUN_10623]))
+
+        assert counts["dl2:slurm_jobs"] == 2
+        assert counts["dl2:slurm_runs"] == 3
+        assert len(submitted_scripts) == 2
+        assert "#SBATCH --account             aswg" in submitted_scripts[0]
+        assert "#SBATCH --partition           short" in submitted_scripts[0]
+        assert "conda activate lst-env" in submitted_scripts[0]
+        assert f"{DL2Producer.worker_command} --input" in submitted_scripts[0]
+
+    def test_slurm_build_skips_existing_unless_overwrite(self, tmp_path, monkeypatch):
+        self._make_dl1_tree(tmp_path, 10001, 10002)
+        dl2_file = tmp_path / "out" / "dl2" / "zd_20_30" / "dl2_LST-1.Run10001.h5"
+        dl2_file.parent.mkdir(parents=True, exist_ok=True)
+        dl2_file.touch()
+
+        config = DL2ProducerConfig(
+            enabled=True,
+            source="build",
+            build=DL2BuildOptions(rf_directory="/models/nsb_tuning_0.22/dec_347"),
+        )
+        slurm_cfg = SlurmConfig(enabled=True, partition="short")
+        producer = DL2Producer(config, tmp_path / "out", slurm_config=slurm_cfg)
+
+        import simple_slurm
+
+        monkeypatch.setattr(simple_slurm.Slurm, "sbatch", lambda self_slurm: 1)
+
+        counts = producer.produce(make_selection([RUN_10623]))
+
+        assert counts["dl2:existing"] == 1
+        assert counts["dl2:slurm_jobs"] == 1
+        assert counts["dl2:slurm_runs"] == 1
+
+    def test_produce_uses_local_build_when_slurm_disabled(self, tmp_path, monkeypatch):
+        self._make_dl1_tree(tmp_path, 10001)
+        calls = self._fake_batch(monkeypatch)
+        config = DL2ProducerConfig(
+            enabled=True,
+            source="build",
+            build=DL2BuildOptions(rf_directory="/models/nsb_tuning_0.22/dec_347"),
+        )
+        slurm_cfg = SlurmConfig(enabled=False)
+        producer = DL2Producer(config, tmp_path / "out", slurm_config=slurm_cfg)
+
+        counts = producer.produce(make_selection([RUN_10623]))
+
+        assert counts["dl2:built"] == 1
+        assert len(calls) == 1
+
+    def test_default_slurm_build_raises_not_implemented(self, tmp_path):
+        config = DL1ProducerConfig(enabled=True, source="build")  # type: ignore[arg-type]
+        producer = DL1Producer(config, tmp_path / "out")
+        with pytest.raises(NotImplementedError, match="SLURM building is not supported yet"):
+            producer.slurm_build(make_selection([RUN_10623]), SlurmConfig(enabled=True))
+
 
 
 DL3_RUN = {"run_number": 14083, "date": 20230821, "zenith_bin": "zd_20_30"}

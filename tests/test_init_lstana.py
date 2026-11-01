@@ -1,4 +1,5 @@
 import textwrap
+from collections import Counter
 from types import SimpleNamespace
 
 import astropy.units as u
@@ -213,6 +214,22 @@ class TestBuildProducers:
         assert dl2.dl1_directory == tmp_path / "out" / "dl1"
         assert dl3.dl2_directory == tmp_path / "out" / "dl2"
 
+    @pytest.mark.parametrize("stage,expected_level", [("dl1", "dl1"), ("dl2", "dl2"), ("dl3", "dl3")])
+    def test_stage_filters_producers(self, tmp_path, stage, expected_level):
+        pipeline_config = PipelineConfig.parse({"dl1": {}, "dl2": {"enabled": True, "source": "link"}})
+
+        producers = init_lstana.make_producers(pipeline_config, MINIMAL_CONFIG, tmp_path / "out", stage=stage)
+
+        assert len(producers) == 1
+        assert producers[0].level == expected_level
+
+    def test_stage_all_returns_all_producers(self, tmp_path):
+        pipeline_config = PipelineConfig.parse({"dl1": {}, "dl2": {"enabled": True, "source": "link"}})
+
+        producers = init_lstana.make_producers(pipeline_config, MINIMAL_CONFIG, tmp_path / "out", stage="all")
+
+        assert [p.level for p in producers] == ["dl1", "dl2", "dl3"]
+
 
 class TestMain:
     def test_disabled_producers_are_skipped(self, tmp_path, monkeypatch, capsys):
@@ -249,7 +266,9 @@ class TestMain:
             produce=lambda selection: produced.append(1),
         )
         monkeypatch.setattr(
-            init_lstana, "make_producers", lambda pipeline_config, raw_config, output_root: [disabled_producer]
+            init_lstana,
+            "make_producers",
+            lambda pipeline_config, raw_config, output_root, stage="all": [disabled_producer],
         )
         monkeypatch.setattr("sys.argv", ["init_lstana", str(config_path), "-o", str(tmp_path / "out")])
 
@@ -257,3 +276,105 @@ class TestMain:
 
         assert produced == []
         assert "Selected 0 runs" in capsys.readouterr().out
+
+    @pytest.mark.parametrize("stage,should_save_datacheck", [("all", True), ("dl1", True), ("dl2", False), ("dl3", False)])
+    def test_stage_flag_controls_datacheck_output(self, tmp_path, monkeypatch, stage, should_save_datacheck):
+        config_path = tmp_path / "config.toml"
+        config_path.write_text(
+            textwrap.dedent(
+                """
+                [source]
+                ra = 83.632
+                dec = 22.0145
+                name = "Crab Nebula"
+
+                [zenith_binning]
+                edges_deg = [0.0, 20.0]
+
+                [data_filter.cuts]
+                first_date = 20220101
+                last_date = 20221231
+                """
+            )
+        )
+        empty_selection = RunSelection(
+            edges=(0.0, 20.0),
+            selected=pd.DataFrame({"run_number": [], "date": [], "zenith_bin": []}),
+        )
+        monkeypatch.setattr(init_lstana, "select_runs", lambda raw_config: empty_selection)
+
+        datacheck_calls = []
+        monkeypatch.setattr(init_lstana, "save_datacheck_outputs", lambda *args: datacheck_calls.append(args))
+
+        requested_stages = []
+        monkeypatch.setattr(
+            init_lstana,
+            "make_producers",
+            lambda pipeline_config, raw_config, output_root, stage="all": requested_stages.append(stage) or [],
+        )
+
+        argv = ["init_lstana", str(config_path), "-o", str(tmp_path / "out")]
+        if stage != "all":
+            argv.extend(["--stage", stage])
+        monkeypatch.setattr("sys.argv", argv)
+
+        init_lstana.main()
+
+        assert len(datacheck_calls) == (1 if should_save_datacheck else 0)
+        assert requested_stages == [stage]
+
+    def test_main_stops_at_slurm_jobs(self, tmp_path, monkeypatch, capsys):
+        config_path = tmp_path / "config.toml"
+        config_path.write_text(
+            textwrap.dedent(
+                """
+                [source]
+                ra = 83.632
+                dec = 22.0145
+                name = "Crab Nebula"
+
+                [zenith_binning]
+                edges_deg = [0.0, 20.0]
+
+                [data_filter.cuts]
+                first_date = 20220101
+                last_date = 20221231
+                """
+            )
+        )
+        empty_selection = RunSelection(
+            edges=(0.0, 20.0),
+            selected=pd.DataFrame({"run_number": [], "date": [], "zenith_bin": []}),
+        )
+        monkeypatch.setattr(init_lstana, "select_runs", lambda raw_config: empty_selection)
+        monkeypatch.setattr(init_lstana, "save_datacheck_outputs", lambda *args: None)
+
+        dl2_called = []
+        dl3_called = []
+        p_dl2 = SimpleNamespace(
+            level="dl2",
+            config=SimpleNamespace(enabled=True),
+            produce=lambda selection: dl2_called.append(1) or Counter({"dl2:slurm_jobs": 2}),
+        )
+        p_dl3 = SimpleNamespace(
+            level="dl3",
+            config=SimpleNamespace(enabled=True),
+            produce=lambda selection: dl3_called.append(1) or Counter(),
+        )
+
+        monkeypatch.setattr(
+            init_lstana,
+            "make_producers",
+            lambda pipeline_config, raw_config, output_root, stage="all": [p_dl2, p_dl3],
+        )
+
+        monkeypatch.setattr("sys.argv", ["init_lstana", str(config_path), "-o", str(tmp_path / "out")])
+
+        init_lstana.main()
+
+        assert len(dl2_called) == 1
+        assert len(dl3_called) == 0
+        stdout = capsys.readouterr().out
+        assert "Stopped pipeline after dl2" in stdout
+
+

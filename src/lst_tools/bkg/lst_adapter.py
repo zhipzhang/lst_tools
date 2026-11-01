@@ -12,10 +12,9 @@ from gammapy.data import EventList
 from gammapy.utils.coordinates import FoVAltAzFrame, FoVICRSFrame
 
 from lst_tools.dl2 import LSTDL2EventTable, LSTDL2MCTable
-from lst_tools.pointing import Pointing
 
 from ..location import LST_LOCATION
-from ..utils import altaz_to_icrs
+from ..utils import altaz_to_icrs, icrs_to_altaz
 from .events import ObservationFrame, SkyOffsetEvents
 
 _DEFAULT_MC_TIME = Time("2026-01-01")
@@ -27,14 +26,20 @@ def sky_offset_events_from_dl3(
     frame: Literal["icrs", "altaz"] = "icrs",
 ) -> SkyOffsetEvents:
     """Convert all DL3 events into sky-offset events without source masking."""
-    if frame != "icrs":
-        raise NotImplementedError("altaz frame not yet supported")
-
     pointing = events.pointing_radec
-    fov_frame = FoVICRSFrame(origin=pointing)
-    offsets = events.radec.transform_to(fov_frame)
     mean_time = events.time.mean()
-    pointing_altaz = pointing.transform_to(AltAz(obstime=mean_time, location=location))
+    if frame == "icrs":
+        fov_frame = FoVICRSFrame(origin=pointing)
+        offsets = events.radec.transform_to(fov_frame)
+    elif frame == "altaz":
+        event_pointing = icrs_to_altaz(events.time, pointing.ra, pointing.dec, location=location)
+        fov_frame = FoVAltAzFrame(origin=event_pointing, location=location)
+        reconstructed = icrs_to_altaz(events.time, events.radec.ra, events.radec.dec, location=location)
+        offsets = reconstructed.transform_to(fov_frame)
+    else:
+        raise ValueError("frame must be 'icrs' or 'altaz'")
+
+    pointing_altaz = icrs_to_altaz(mean_time, pointing.ra, pointing.dec, location=location)
     observation_frame = ObservationFrame(
         fov_frame=fov_frame,
         mean_time=mean_time,
@@ -45,7 +50,7 @@ def sky_offset_events_from_dl3(
         x=offsets.fov_lon,
         y=offsets.fov_lat,
         energy=events.energy,
-        livetime=events.observation_live_time_duration,
+        livetime=events.observation_time_duration,
         frame=observation_frame,
     )
 
@@ -66,18 +71,25 @@ def sky_offset_events_from_lstdl2(
     location: EarthLocation = LST_LOCATION,
     frame: Literal["icrs", "altaz"] = "icrs",
 ) -> SkyOffsetEvents:
-    """Convert one LST DL2 observation into center-free sky-offset events."""
+    """Convert one LST DL2 observation into sky-offset events.
+
+    With ``frame="icrs"``, all events are centered on the fixed run pointing.
+    With ``frame="altaz"``, each event is centered on its own telescope
+    pointing at its trigger time. Filtering changes the selected events but
+    preserves the observation's full elapsed time (``t_elapsed``, including
+    dead time).
+    """
     try:
         data = dl2.data
-        livetime = u.Quantity(dl2.t_eff, u.s)
+        livetime = u.Quantity(dl2.t_elapsed, u.s)
     except AttributeError as error:
-        raise TypeError("dl2 must expose 'data' and 't_eff' attributes") from error
+        raise TypeError("dl2 must expose 'data' and 't_elapsed' attributes") from error
     if not isinstance(data, pd.DataFrame):
         raise TypeError("dl2.data must be a pandas DataFrame")
 
     mean_time, pointing_alt, pointing_az = _mean_dl2_pointing(data)
     selected = event_filter(data) if event_filter is not None else data
-    event_time = selected["trigger_time"].to_numpy(dtype=float)
+    event_time = Time(selected["trigger_time"].to_numpy(dtype=float), format="unix")
 
     if frame == "icrs":
         pointing = SkyCoord(ra=dl2.pointing_ra, dec=dl2.pointing_dec, frame="icrs")
@@ -91,12 +103,13 @@ def sky_offset_events_from_lstdl2(
             )
             offsets = reconstructed.transform_to(fov_frame)
     elif frame == "altaz":
-        altaz_frame = Pointing(
-            pointing_alt=selected["alt_tel"],
-            pointing_az=selected["az_tel"],
-            trigger_time=event_time,
-        ).altaz
-        fov_frame = FoVAltAzFrame(origin=altaz_frame, location=location)
+        altaz_frame = AltAz(obstime=event_time, location=location)
+        event_pointing = SkyCoord(
+            alt=selected["alt_tel"].to_numpy(dtype=float) * u.rad,
+            az=selected["az_tel"].to_numpy(dtype=float) * u.rad,
+            frame=altaz_frame,
+        )
+        fov_frame = FoVAltAzFrame(origin=event_pointing, location=location)
         if not selected.empty:
             reconstructed = SkyCoord(
                 alt=selected["reco_alt"].to_numpy(dtype=float) * u.rad,
@@ -133,12 +146,19 @@ def sky_offset_events_from_lstmcdl2(
     use_mc_energy: bool = False,
     use_mc_direction: bool = True,
 ) -> SkyOffsetEvents:
-    """Convert MC DL2 events using the fixed pointing encoded in the table."""
-    pointing = Pointing(
-        pointing_alt=90 * u.deg - dl2.pointing_ze,
-        pointing_az=dl2.pointing_az,
-        trigger_time=time,
-    ).altaz
+    """Convert simulated LST DL2 events into FoV-AltAz sky-offset events.
+
+    The fixed pointing is derived from the zenith and azimuth encoded in the
+    table. MC directions and reconstructed energies are used by default;
+    ``use_mc_direction`` and ``use_mc_energy`` select those inputs separately.
+    The simulated observation has a fixed livetime of 50 hours.
+    """
+    altaz_frame = AltAz(obstime=time, location=LST_LOCATION)
+    pointing = SkyCoord(
+        alt=90 * u.deg - dl2.pointing_ze,
+        az=dl2.pointing_az,
+        frame=altaz_frame,
+    )
     fov_frame = FoVAltAzFrame(origin=pointing, location=LST_LOCATION)
     observation_frame = ObservationFrame(
         fov_frame=fov_frame,
@@ -146,15 +166,16 @@ def sky_offset_events_from_lstmcdl2(
         pointing_alt=pointing.alt,
         pointing_az=pointing.az,
     )
+    livetime = 50 * u.h
     selected = event_filter(dl2.data) if event_filter is not None else dl2.data
     if selected.empty:
-        return SkyOffsetEvents(livetime=50 * u.h, frame=observation_frame)
+        return SkyOffsetEvents(livetime=livetime, frame=observation_frame)
 
     direction_prefix = "mc" if use_mc_direction else "reco"
     directions = SkyCoord(
         alt=selected[f"{direction_prefix}_alt"].to_numpy(dtype=float) * u.rad,
         az=selected[f"{direction_prefix}_az"].to_numpy(dtype=float) * u.rad,
-        frame=AltAz(obstime=time, location=LST_LOCATION),
+        frame=altaz_frame,
     )
     offsets = directions.transform_to(fov_frame)
     energy_column = "mc_energy" if use_mc_energy else "reco_energy"
@@ -162,6 +183,6 @@ def sky_offset_events_from_lstmcdl2(
         x=offsets.fov_lon,
         y=offsets.fov_lat,
         energy=selected[energy_column].to_numpy(dtype=float) * u.TeV,
-        livetime=50 * u.h,
+        livetime=livetime,
         frame=observation_frame,
     )
