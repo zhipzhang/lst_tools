@@ -19,6 +19,7 @@ from .configs import (
 )
 from .producers import DL1Producer, DL2Producer, DL3Producer, DLProducer, create_safe_link
 from .selection import RunSelection, SelectedRun
+from .slurm_config import SlurmConfig, SlurmDL2Config
 
 __all__ = [
     "DL1BuildOptions",
@@ -37,6 +38,8 @@ __all__ = [
     "PipelineConfig",
     "RunSelection",
     "SelectedRun",
+    "SlurmConfig",
+    "SlurmDL2Config",
     "SourceConfig",
     "create_safe_link",
 ]
