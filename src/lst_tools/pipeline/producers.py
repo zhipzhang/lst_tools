@@ -11,6 +11,7 @@ variant rule, its placement rule, its build recipe.
 """
 
 import os
+import shlex
 import warnings
 from abc import ABC
 from collections import Counter
@@ -18,7 +19,7 @@ from collections.abc import Sequence
 from pathlib import Path
 from typing import Any, ClassVar, Literal
 
-from lst_tools.dl1.dl1event import LSTDL1Event, dl1_to_dl2_batch
+from lst_tools.dl1.dl1event import dl1_to_dl2_batch, group_dl1_by_model_directory
 from lst_tools.dl2 import LSTDL2EventTable
 from lst_tools.dl3 import DL3Reducer
 from lst_tools.finder import (
@@ -226,25 +227,28 @@ class DL2Producer(DLProducer):
                 continue
 
             batch_idx = 1
-            for model_directory, group in self._group_by_model_directory(rf_template, pending).items():
-                for i in range(0, len(group), runs_per_job):
-                    chunk = group[i : i + runs_per_job]
-                    job_name = f"lst_dl2_{dl1_dir.name}_{batch_idx}"
-                    batch_idx += 1
-                    slurm = Slurm(**{**slurm_kwargs, "job_name": job_name})
-                    slurm.set_shell("/bin/bash")
-                    if slurm_config.env_setup:
-                        slurm.add_cmd(slurm_config.env_setup)
+            for i in range(0, len(pending), runs_per_job):
+                chunk = pending[i : i + runs_per_job]
+                job_name = f"lst_dl2_{dl1_dir.name}_{batch_idx}"
+                batch_idx += 1
+                slurm = Slurm(**{**slurm_kwargs, "job_name": job_name})
+                slurm.set_shell("/bin/bash")
+                if slurm_config.env_setup:
+                    slurm.add_cmd(slurm_config.env_setup)
 
-                    files_arg = " ".join(f'"{f}"' for f in chunk)
-                    cmd = f'{self.worker_command} --input {files_arg} --output-dir "{output_dir}" --model-dir "{model_directory}"'
-                    if overwrite:
-                        cmd += " --overwrite"
-                    slurm.add_cmd(cmd)
+                files_arg = " ".join(shlex.quote(str(file)) for file in chunk)
+                cmd = (
+                    f"{self.worker_command} --input {files_arg} "
+                    f"--output-dir {shlex.quote(str(output_dir))} "
+                    f"--model-dir {shlex.quote(rf_template)}"
+                )
+                if overwrite:
+                    cmd += " --overwrite"
+                slurm.add_cmd(cmd)
 
-                    slurm.sbatch()
-                    counts["dl2:slurm_jobs"] += 1
-                    counts["dl2:slurm_runs"] += len(chunk)
+                slurm.sbatch()
+                counts["dl2:slurm_jobs"] += 1
+                counts["dl2:slurm_runs"] += len(chunk)
 
         return counts
 
@@ -284,7 +288,7 @@ class DL2Producer(DLProducer):
             if not pending:
                 continue
 
-            for model_directory, group in self._group_by_model_directory(rf_template, pending).items():
+            for model_directory, group in group_dl1_by_model_directory(pending, rf_template).items():
                 dl1_to_dl2_batch(group, output_dir, model_directory, overwrite=overwrite)
                 for dl1_file in group:
                     if (output_dir / dl1_file.name.replace("dl1", "dl2", 1)).exists():
@@ -294,19 +298,6 @@ class DL2Producer(DLProducer):
                         counts["dl2:failed"] += 1
 
         return counts
-
-    @staticmethod
-    def _group_by_model_directory(rf_template: str, dl1_files: list[Path]) -> dict[Path, list[Path]]:
-        """Group DL1 files by their resolved RF model directory."""
-        if NSB_LEVEL_VARIABLE not in rf_template:
-            return {Path(rf_template): dl1_files}
-
-        groups: dict[Path, list[Path]] = {}
-        for dl1_file in dl1_files:
-            nsb_level = LSTDL1Event(str(dl1_file)).nsb_level
-            model_directory = Path(rf_template.replace(NSB_LEVEL_VARIABLE, f"{nsb_level:.2f}"))
-            groups.setdefault(model_directory, []).append(dl1_file)
-        return groups
 
 
 def _mc_campaign_directory(directory_template: str, nsb_level: float) -> Path:

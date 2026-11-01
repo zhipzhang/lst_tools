@@ -45,6 +45,24 @@ class LSTDL1Event:
         return LSTDL2EventTable(out_root / dl2_file_name)
 
 
+def group_dl1_by_model_directory(
+    files: Iterable[str | PathLike[str]],
+    model_directory_template: str | PathLike[str],
+) -> dict[Path, list[Path]]:
+    """Group DL1 files by RF model directory, resolving NSB per run if needed."""
+    dl1_files = [Path(file) for file in files]
+    template = str(model_directory_template)
+    if "$NSB_LEVEL" not in template:
+        return {Path(template): dl1_files}
+
+    groups: dict[Path, list[Path]] = {}
+    for dl1_file in dl1_files:
+        nsb_level = LSTDL1Event(dl1_file).nsb_level
+        model_directory = Path(template.replace("$NSB_LEVEL", f"{nsb_level:.2f}"))
+        groups.setdefault(model_directory, []).append(dl1_file)
+    return groups
+
+
 def dl1_to_dl2_batch(files: Iterable[str | PathLike[str]], out_root, model_directory, overwrite=False):
     events = [LSTDL1Event(f) for f in files]  # validates existence + run id up front
     tool = DL1ToDL2Tool(

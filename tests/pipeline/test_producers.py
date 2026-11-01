@@ -270,8 +270,7 @@ class TestDL2Producer:
         calls = self._fake_batch(monkeypatch)
         nsb_by_file = {dl1_files[0]: 0.22, dl1_files[1]: 0.38}
         monkeypatch.setattr(
-            producers_module,
-            "LSTDL1Event",
+            "lst_tools.dl1.dl1event.LSTDL1Event",
             lambda path: SimpleNamespace(nsb_level=nsb_by_file[Path(path)]),
         )
         config = DL2ProducerConfig(
@@ -332,12 +331,12 @@ class TestDL2Producer:
 
         assert counts == {}
 
-    def test_slurm_build_submits_jobs_and_uses_worker_command(self, tmp_path, monkeypatch):
-        files = self._make_dl1_tree(tmp_path, 10001, 10002, 10003)
+    def test_slurm_build_submits_run_chunks_without_nsb_lookup(self, tmp_path, monkeypatch):
+        self._make_dl1_tree(tmp_path, 10001, 10002, 10003)
         config = DL2ProducerConfig(
             enabled=True,
             source="build",
-            build=DL2BuildOptions(rf_directory="/models/nsb_tuning_0.22/dec_347"),
+            build=DL2BuildOptions(rf_directory="/models/nsb_tuning_$NSB_LEVEL/dec_347"),
         )
         slurm_cfg = SlurmConfig(
             enabled=True,
@@ -348,6 +347,10 @@ class TestDL2Producer:
         )
         producer = DL2Producer(config, tmp_path / "out", slurm_config=slurm_cfg)
 
+        def unexpected_nsb_lookup(path):
+            raise AssertionError(f"SLURM submission looked up NSB for {path}")
+
+        monkeypatch.setattr("lst_tools.dl1.dl1event.LSTDL1Event", unexpected_nsb_lookup)
         submitted_scripts = []
         counter = [0]
 
@@ -369,6 +372,7 @@ class TestDL2Producer:
         assert "#SBATCH --partition           short" in submitted_scripts[0]
         assert "conda activate lst-env" in submitted_scripts[0]
         assert f"{DL2Producer.worker_command} --input" in submitted_scripts[0]
+        assert r"--model-dir '/models/nsb_tuning_\$NSB_LEVEL/dec_347'" in submitted_scripts[0]
 
     def test_slurm_build_skips_existing_unless_overwrite(self, tmp_path, monkeypatch):
         self._make_dl1_tree(tmp_path, 10001, 10002)
