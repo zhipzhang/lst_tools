@@ -11,7 +11,7 @@ from .utils import validate_edges
 
 
 class CameraImage:
-    """Counts, livetime, and frame metadata for one observation."""
+    """Counts, livetime, and frame metadata for one observation or time slice."""
 
     def __init__(
         self,

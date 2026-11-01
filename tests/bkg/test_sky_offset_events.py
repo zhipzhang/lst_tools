@@ -1,13 +1,39 @@
 import astropy.units as u
 import numpy as np
 import pytest
+from astropy.coordinates import AltAz, SkyCoord
+from astropy.time import Time
+from gammapy.utils.coordinates import FoVAltAzFrame
 
 from lst_tools import bkg
 from lst_tools.bkg import ObservationFrame, SkyOffsetEvents
+from lst_tools.location import LST_LOCATION
 
 
 def make_events(frame, *, x=(-0.5, 0.25, 1.0), y=(0.0, 0.5, -0.25), energy=(0.2, 1.0, 4.0), livetime=10 * u.s):
     return SkyOffsetEvents(x=x, y=y, energy=energy, livetime=livetime, frame=frame)
+
+
+def make_altaz_events(offsets=(0, 600, 1200), *, livetime=120 * u.s):
+    times = Time(1_700_000_000 + np.asarray(offsets), format="unix")
+    pointing = SkyCoord(ra=83.5, dec=20.3, unit=u.deg, frame="icrs")
+    origin = pointing.transform_to(AltAz(obstime=times, location=LST_LOCATION))
+    mean_pointing = pointing.transform_to(AltAz(obstime=times.mean(), location=LST_LOCATION))
+    if len(times) == 1:
+        origin = origin[0]
+    frame = ObservationFrame(
+        fov_frame=FoVAltAzFrame(origin=origin, location=LST_LOCATION),
+        mean_time=times.mean(),
+        pointing_alt=mean_pointing.alt,
+        pointing_az=mean_pointing.az,
+    )
+    return SkyOffsetEvents(
+        x=np.linspace(0, 0.2, len(times)),
+        y=np.zeros(len(times)),
+        energy=np.arange(len(times)) + 1,
+        livetime=livetime,
+        frame=frame,
+    )
 
 
 def test_events_use_canonical_units_and_keep_frame(observation_frame):
@@ -109,3 +135,110 @@ def test_energy_selection_preserves_livetime_and_frame(observation_frame):
     np.testing.assert_allclose(selected.x, [1, 2])
     assert selected.livetime == events.livetime
     assert selected.frame is observation_frame
+
+
+def test_time_slices_require_altaz_frame(observation_frame):
+    with pytest.raises(TypeError, match="FoVAltAzFrame"):
+        make_events(observation_frame).time_slices()
+
+
+def test_time_slices_conserve_events_and_livetime():
+    events = make_altaz_events()
+
+    slices = events.time_slices()
+
+    assert len(slices) > 1
+    assert sum(map(len, slices)) == len(events)
+    assert sum((slice_.livetime for slice_ in slices), 0 * u.s) == events.livetime
+    np.testing.assert_allclose(np.concatenate([slice_.energy for slice_ in slices]), events.energy)
+    assert all(slice_.frame.fov_frame.origin.isscalar for slice_ in slices)
+    assert all(slice_.frame.fov_frame.obstime.isscalar for slice_ in slices)
+    assert any(len(slice_) == 0 for slice_ in slices)
+
+
+def test_time_slices_have_a_one_second_minimum_duration():
+    events = make_altaz_events((0, 1, 2), livetime=10 * u.s)
+
+    slices = events.time_slices(max_fov_rotation=1e-12 * u.deg)
+
+    assert len(slices) == 2
+    assert [len(slice_) for slice_ in slices] == [1, 2]
+    assert all(slice_.livetime == 5 * u.s for slice_ in slices)
+
+
+def test_time_slices_return_fixed_frame_events_unchanged():
+    events = make_altaz_events((0,))
+
+    slices = events.time_slices()
+
+    assert slices == [events]
+
+
+def test_time_slices_handle_east_west_pointing_singularity():
+    # High-elevation run centered exactly on due East (az = 90 deg at midpoint).
+    mid_time = Time(1_700_000_000, format="unix")
+    pointing = SkyCoord(alt=82 * u.deg, az=90 * u.deg, frame=AltAz(obstime=mid_time, location=LST_LOCATION)).icrs
+    times = mid_time + np.array([-600.0, 0.0, 600.0]) * u.s
+    origin = pointing.transform_to(AltAz(obstime=times, location=LST_LOCATION))
+    mid_pointing = pointing.transform_to(AltAz(obstime=mid_time, location=LST_LOCATION))
+    frame = ObservationFrame(
+        fov_frame=FoVAltAzFrame(origin=origin, location=LST_LOCATION),
+        mean_time=mid_time,
+        pointing_alt=mid_pointing.alt,
+        pointing_az=90 * u.deg,
+    )
+    events = SkyOffsetEvents(x=[0, 0, 0], y=[0, 0, 0], energy=[1, 2, 3], livetime=1200 * u.s, frame=frame)
+
+    slices = events.time_slices(max_fov_rotation=0.2 * u.deg)
+
+    assert len(slices) > 1
+    assert sum(map(len, slices)) == 3
+    assert sum((slice_.livetime for slice_ in slices), 0 * u.s).to_value(u.s) == pytest.approx(1200.0)
+
+
+def test_time_slices_use_mean_icrs_pointing_rather_than_first_event():
+    times = Time(1_700_000_000 + np.array([0.0, 100.0, 200.0, 300.0, 400.0]), format="unix")
+    true_pointing = SkyCoord(ra=83.5, dec=20.3, unit=u.deg, frame="icrs")
+    jittered_first = SkyCoord(ra=84.5, dec=20.3, unit=u.deg, frame="icrs")
+    icrs_per_event = SkyCoord(
+        ra=[jittered_first.ra.deg, *([true_pointing.ra.deg] * 4)] * u.deg,
+        dec=[jittered_first.dec.deg, *([true_pointing.dec.deg] * 4)] * u.deg,
+        frame="icrs",
+    )
+    origin = icrs_per_event.transform_to(AltAz(obstime=times, location=LST_LOCATION))
+    mean_pointing = true_pointing.transform_to(AltAz(obstime=times.mean(), location=LST_LOCATION))
+    frame = ObservationFrame(
+        fov_frame=FoVAltAzFrame(origin=origin, location=LST_LOCATION),
+        mean_time=times.mean(),
+        pointing_alt=mean_pointing.alt,
+        pointing_az=mean_pointing.az,
+    )
+    events = SkyOffsetEvents(x=np.zeros(5), y=np.zeros(5), energy=np.ones(5), livetime=400 * u.s, frame=frame)
+
+    slices = events.time_slices(0.5)
+    slice_icrs = SkyCoord(slices[0].frame.fov_frame.origin).icrs
+
+    assert slice_icrs.separation(true_pointing) < slice_icrs.separation(jittered_first)
+
+
+def test_time_slices_preserve_empty_filtered_altaz_exposure():
+    empty_origin = SkyCoord(
+        alt=np.array([]) * u.deg,
+        az=np.array([]) * u.deg,
+        frame=AltAz(obstime=Time(np.array([]), format="unix"), location=LST_LOCATION),
+    )
+    mean_time = Time(1_700_000_000, format="unix")
+    frame = ObservationFrame(
+        fov_frame=FoVAltAzFrame(origin=empty_origin, location=LST_LOCATION),
+        mean_time=mean_time,
+        pointing_alt=70 * u.deg,
+        pointing_az=10 * u.deg,
+    )
+    events = SkyOffsetEvents(livetime=60 * u.s, frame=frame)
+
+    slices = events.time_slices()
+
+    assert len(slices) == 1
+    assert len(slices[0]) == 0
+    assert slices[0].livetime == 60 * u.s
+    assert slices[0].frame.fov_frame.origin.isscalar

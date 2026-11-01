@@ -5,11 +5,15 @@ import numpy as np
 import pandas as pd
 import pytest
 from astropy.coordinates import AltAz, SkyCoord, SkyOffsetFrame
+from astropy.table import Table
 from astropy.time import Time
 from astropy.utils import iers
+from gammapy.data import EventList
 from gammapy.utils.coordinates import FoVAltAzFrame
+from gammapy.utils.time import time_ref_to_dict
 
 from lst_tools.bkg import SkyOffsetEvents, sky_offset_events_from_lstdl2, sky_offset_events_from_lstmcdl2
+from lst_tools.bkg.lst_adapter import sky_offset_events_from_dl3
 from lst_tools.dl2 import LSTDL2MCTable
 from lst_tools.location import LST_LOCATION
 
@@ -48,7 +52,7 @@ def run_dl2():
     )
     dl2 = SimpleNamespace(
         data=data,
-        t_eff=12.5,
+        t_elapsed=12.5,
         pointing_ra=pointing.ra,
         pointing_dec=pointing.dec,
     )
@@ -104,7 +108,7 @@ def test_adapter_returns_empty_exposure_when_no_events_survive(run_dl2):
 
 def test_adapter_accepts_quantity_livetime(run_dl2):
     dl2, _, _ = run_dl2
-    dl2.t_eff = 2 * u.min
+    dl2.t_elapsed = 2 * u.min
 
     events = sky_offset_events_from_lstdl2(dl2)
 
@@ -120,8 +124,8 @@ def test_adapter_does_not_modify_input_dataframe(run_dl2):
     pd.testing.assert_frame_equal(dl2.data, original)
 
 
-def test_adapter_requires_data_pointing_and_effective_livetime():
-    with pytest.raises(TypeError, match="data.*t_eff"):
+def test_adapter_requires_data_pointing_and_elapsed_time():
+    with pytest.raises(TypeError, match="data.*t_elapsed"):
         sky_offset_events_from_lstdl2(object())
 
 
@@ -133,9 +137,9 @@ def test_adapter_requires_dataframe_data(run_dl2):
         sky_offset_events_from_lstdl2(dl2)
 
 
-def test_adapter_validates_effective_livetime(run_dl2):
+def test_adapter_validates_elapsed_time(run_dl2):
     dl2, _, _ = run_dl2
-    dl2.t_eff = -1
+    dl2.t_elapsed = -1
 
     with pytest.raises(ValueError, match="livetime"):
         sky_offset_events_from_lstdl2(dl2)
@@ -157,7 +161,7 @@ def run_dl2_altaz():
             "trigger_time": event_time.unix,
         }
     )
-    dl2 = SimpleNamespace(data=data, t_eff=30.0)
+    dl2 = SimpleNamespace(data=data, t_elapsed=30.0)
     return dl2, event_time
 
 
@@ -190,6 +194,47 @@ def test_adapter_altaz_frame_centers_each_event_on_its_own_pointing(run_dl2_alta
 
     np.testing.assert_allclose(events.x, 0, atol=1e-10)
     np.testing.assert_allclose(events.y, 0, atol=1e-10)
+
+
+def test_dl3_adapter_altaz_frame_matches_scalar_per_event_reference():
+    event_time = Time(1_700_000_000 + np.array([0.0, 60.0, 120.0]), format="unix")
+    pointing = SkyCoord(ra=83.5, dec=20.3, unit=u.deg, frame="icrs")
+    meta = {
+        **time_ref_to_dict(event_time[0], scale="utc"),
+        "RA_PNT": pointing.ra.deg,
+        "DEC_PNT": pointing.dec.deg,
+        "TSTART": 0.0,
+        "TSTOP": 30.0,
+    }
+    table = Table(
+        {
+            "TIME": event_time,
+            "RA": [83.6, 83.4, 83.55] * u.deg,
+            "DEC": [20.4, 20.2, 20.25] * u.deg,
+            "ENERGY": [0.2, 0.8, 2.0] * u.TeV,
+        },
+        meta=meta,
+    )
+
+    events = sky_offset_events_from_dl3(EventList(table), frame="altaz")
+
+    expected_x, expected_y = [], []
+    for row, time in zip(table, event_time):
+        altaz_frame = AltAz(obstime=time, location=LST_LOCATION)
+        origin = pointing.transform_to(altaz_frame)
+        direction = SkyCoord(ra=row["RA"], dec=row["DEC"], unit=u.deg, frame="icrs").transform_to(altaz_frame)
+        fov = direction.transform_to(FoVAltAzFrame(origin=origin, location=LST_LOCATION))
+        expected_x.append(fov.fov_lon.to_value(u.deg))
+        expected_y.append(fov.fov_lat.to_value(u.deg))
+
+    np.testing.assert_allclose(events.x, expected_x, atol=1e-10)
+    np.testing.assert_allclose(events.y, expected_y, atol=1e-10)
+    np.testing.assert_allclose(events.energy, [0.2, 0.8, 2.0])
+    assert events.livetime.to_value(u.s) == pytest.approx(30.0)
+    assert events.frame.mean_time.unix == pytest.approx(event_time.unix.mean())
+    expected_mean_pointing = pointing.transform_to(AltAz(obstime=event_time.mean(), location=LST_LOCATION))
+    assert events.frame.pointing_alt.to_value(u.deg) == pytest.approx(expected_mean_pointing.alt.to_value(u.deg))
+    assert events.frame.pointing_az.to_value(u.deg) == pytest.approx(expected_mean_pointing.az.to_value(u.deg))
 
 
 def test_mc_adapter_uses_table_pointing_default_time_and_fixed_livetime():

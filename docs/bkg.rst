@@ -44,7 +44,10 @@ define its coordinate frame:
 
 ``SkyOffsetEvents`` intentionally does not combine observations or manage
 exclusion regions; those belong to the background-making layer described
-below.
+below. Following the GADF/Gammapy background-IRF convention, ``livetime``
+stores the elapsed observation duration (ontime, including dead time) so that
+Gammapy's ``make_map_background_irf`` integration over ``ontime`` reproduces
+observed background counts directly.
 
 Adapters from LST data
 ----------------------
@@ -60,8 +63,8 @@ For LST DL2 files, use :func:`~lst_tools.bkg.sky_offset_events_from_lstdl2`:
    events = sky_offset_events_from_lstdl2(dl2)
 
 An optional ``event_filter`` receives the full DL2 DataFrame and returns the
-rows to retain. The complete run livetime is preserved, so the filter models
-signal exclusion without changing exposure:
+rows to retain. The complete run elapsed time (``dl2.t_elapsed``) is preserved,
+so the filter models event selection without changing exposure:
 
 .. code-block:: python
 
@@ -130,10 +133,11 @@ bin center. Set it to the spectral shape you want the model to assume.
 Full-FoV (3D) background maps
 -----------------------------
 
-:class:`~lst_tools.bkg.BkgMaker` combines multiple ICRS
+:class:`~lst_tools.bkg.BkgMaker` combines multiple ICRS or AltAz
 :class:`~lst_tools.bkg.CameraImage` objects into a Gammapy
-:class:`gammapy.irf.Background3D`. It handles masking, exposure weighting,
-optional top-hat convolution, and differential-rate normalization:
+:class:`gammapy.irf.Background3D`. It handles masking, exposure accumulation,
+optional spatial downsampling, optional top-hat convolution, and
+differential-rate normalization:
 
 .. code-block:: python
 
@@ -141,23 +145,73 @@ optional top-hat convolution, and differential-rate normalization:
    from gammapy.maps import RegionGeom
    from regions import CircleSkyRegion
 
+   # Bin CameraImage on a fine spatial grid (e.g. 4x finer than the target IRF grid)
    images = [image_from_run_a, image_from_run_b]
 
    exclusion = RegionGeom.from_regions(
        CircleSkyRegion(center=source_position, radius=0.3 * u.deg)
    )
 
-   maker = BkgMaker(exposure_oversampling=4)
+   maker = BkgMaker(downsampling=4)
    background_3d = maker.make_icrs_background_map(
        images,
        exclusion_region=exclusion,
        kernel_radius=0.2 * u.deg,
    )
 
-Counts and exposure are accumulated separately, optionally convolved with the
-same circular top-hat kernel per energy bin, and then divided to form a
-differential rate in ``s-1 MeV-1 sr-1``. Pixels with zero exposure raise an
-error so that unmasked gaps cannot be silently exported.
+Masking and accumulation happen directly on the input ``CameraImage`` grid so
+that excluded source events are removed at true event resolution without
+leaking across partial coarse pixels. When ``downsampling > 1``, the
+accumulated ``counts`` and ``exposure`` histograms are rebinned into
+``coarse_counts`` (sum) and ``coarse_exposure`` (mean), optionally convolved
+with the same circular top-hat kernel per energy bin, and divided to form a
+differential rate in ``s-1 MeV-1 sr-1`` evaluated on a logarithmic energy axis
+(``interp="log"``, where linear ``ΔE`` matches an :math:`E^{-2}` spectrum at
+logarithmic bin centers). Pixels with zero exposure raise an error so that
+unmasked gaps cannot be silently exported.
+
+:meth:`~lst_tools.bkg.BkgMaker.make_counts_map` and
+:meth:`~lst_tools.bkg.BkgMaker.make_exposure_map` expose the :class:`hist.Hist`
+maps for a single image or any iterable of images. Both return the downsampled
+coarse histogram by default; pass ``downsample=False`` to inspect the native
+pre-downsampling histogram, or pass ``kernel_radius`` to inspect the
+top-hat-smoothed maps:
+
+.. code-block:: python
+
+   coarse_counts = maker.make_counts_map(images, exclusion_region=exclusion)
+   coarse_exposure = maker.make_exposure_map(images, exclusion_region=exclusion)
+
+   native_exposure = maker.make_exposure_map(images, exclusion_region=exclusion, downsample=False)
+
+For an AltAz model without exclusion, whole-run images can be passed directly
+to :meth:`~lst_tools.bkg.BkgMaker.make_altaz_background_map`. An ICRS exclusion
+moves in FoV-AltAz coordinates, so time-varying observations must first be
+split into scalar-pointing slices (which can be streamed as a generator):
+
+.. code-block:: python
+
+   events = sky_offset_events_from_lstdl2(dl2, frame="altaz")
+   event_slices = events.time_slices(max_fov_rotation=0.2 * u.deg)
+   images = (
+       CameraImage.from_events(slice_, fine_x_edges, fine_y_edges, e_edges)
+       for slice_ in event_slices
+   )
+
+   background_altaz = maker.make_altaz_background_map(
+       images,
+       exclusion_region=exclusion,
+       kernel_radius=0.2 * u.deg,
+   )
+
+The slicer computes the spherical mean ICRS pointing across the observation,
+samples the field-rotation rate over ``[t_min, t_max]`` (using the peak rate so
+runs crossing due East or West are not under-sliced), and divides the span into
+equal-duration slices. It preserves events and total livetime, including
+exposure in slices containing no events. Each image keeps a scalar livetime;
+the maker derives pixel-wise effective exposure by masking counts and exposure
+with each slice's frame. Fixed scalar-frame inputs, such as the MC adapter
+output, do not require slicing.
 
 Visualization
 -------------
