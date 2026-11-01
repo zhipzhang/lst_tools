@@ -107,11 +107,22 @@ class TestDL3Config:
         with pytest.raises(ConfigError, match=r"\[dl3.build\] is required"):
             DL3ProducerConfig.parse({"source": "build"})
 
-    def test_build_mode_requires_event_cuts(self):
-        with pytest.raises(ConfigError, match=r"\[dl3.build\] is missing required key"):
+    @staticmethod
+    def _reduction(**overrides):
+        options = {
+            "name": "standard",
+            "intensity_cut": 80,
+            "leakage_cut": 1.0,
+            "gh_efficiency": 0.7,
+        }
+        options.update(overrides)
+        return options
+
+    def test_build_mode_requires_a_reduction(self):
+        with pytest.raises(ConfigError, match=r"at least one \[\[dl3.build.reduction\]\]"):
             DL3ProducerConfig.parse({"source": "build", "build": {"overwrite": True}})
 
-    def test_build_mode_with_flat_config(self):
+    def test_build_mode_with_multiple_reductions(self):
         config = DL3ProducerConfig.parse(
             {
                 "source": "build",
@@ -119,11 +130,17 @@ class TestDL3Config:
                     "interp_method": "nearest",
                     "use_nearest_irf_node": True,
                     "overwrite": True,
-                    "intensity_cut": 80,
-                    "leakage_cut": 1.0,
-                    "gh_efficiency": 0.7,
-                    "point_like": True,
                     "mc_dl2_directory": "custom_nsb_$NSB_LEVEL",
+                    "reduction": [
+                        self._reduction(point_like=True),
+                        self._reduction(
+                            name="tight",
+                            intensity_cut=150,
+                            leakage_cut=0.8,
+                            gh_efficiency=None,
+                            gh_cut=0.9,
+                        ),
+                    ],
                 },
             }
         )
@@ -132,56 +149,60 @@ class TestDL3Config:
         assert config.build.use_nearest_irf_node is True
         assert config.build.overwrite is True
         assert config.build.irf_directory is None
-        assert config.build.point_like is True
         assert config.build.mc_dl2_directory == "custom_nsb_$NSB_LEVEL"
-        assert isinstance(config.build.event_filter, EventFilter)
+        assert [reduction.name for reduction in config.build.reductions] == ["standard", "tight"]
+        assert config.build.reductions[0].point_like is True
+        assert config.build.reductions[0].event_filter.gh_type == "efficiency"
+        assert config.build.reductions[1].event_filter.gh_type == "cut"
+        assert config.build.reductions[1].event_filter.gh_value == pytest.approx(0.9)
+        assert all(isinstance(reduction.event_filter, EventFilter) for reduction in config.build.reductions)
 
-    def test_build_mode_with_deprecated_irf_section(self):
-        with pytest.deprecated_call(match=r"\[dl3.build.irf\] is deprecated"):
-            config = DL3ProducerConfig.parse(
-                {
-                    "source": "build",
-                    "build": {
-                        "interp_method": "nearest",
-                        "use_nearest_irf_node": True,
-                        "overwrite": True,
-                        "irf": {
-                            "intensity_cut": 80,
-                            "leakage_cut": 1.0,
-                            "gh_efficiency": 0.7,
-                            "point_like": True,
-                            "mc_dl2_directory": "custom_nsb_$NSB_LEVEL",
-                        },
-                    },
-                }
-            )
-        assert config.source == "build"
-        assert config.build.interp_method == "nearest"
-        assert config.build.use_nearest_irf_node is True
-        assert config.build.overwrite is True
-        assert config.build.irf_directory is None
-        assert config.build.point_like is True
-        assert config.build.mc_dl2_directory == "custom_nsb_$NSB_LEVEL"
-        assert isinstance(config.build.event_filter, EventFilter)
+    def test_build_mode_rejects_flat_cuts(self):
+        with pytest.raises(ConfigError, match=r"cuts moved under \[\[dl3.build.reduction\]\]"):
+            DL3ProducerConfig.parse({"source": "build", "build": {"intensity_cut": 80}})
+
+    def test_build_mode_rejects_deprecated_irf_section(self):
+        with pytest.raises(ConfigError, match=r"\[dl3.build.irf\] was removed"):
+            DL3ProducerConfig.parse({"source": "build", "build": {"irf": {}}})
 
     def test_build_defaults_to_full_enclosure(self):
         config = DL3ProducerConfig.parse(
-            {
-                "source": "build",
-                "build": {"intensity_cut": 80, "leakage_cut": 1.0, "gh_efficiency": 0.7},
-            }
+            {"source": "build", "build": {"reduction": [self._reduction()]}}
         )
-        assert config.build.point_like is False
+        assert config.build.reductions[0].point_like is False
         assert config.build.mc_dl2_directory == "20250212_v0.10.17_allsky_interp_dl2_irfs_nsb_$NSB_LEVEL"
 
     def test_build_requires_intensity_and_leakage(self):
+        reduction = {"name": "standard", "gh_efficiency": 0.7}
         with pytest.raises(ConfigError, match="missing required key"):
-            DL3ProducerConfig.parse({"source": "build", "build": {"gh_efficiency": 0.7}})
+            DL3ProducerConfig.parse({"source": "build", "build": {"reduction": [reduction]}})
 
     def test_build_requires_exactly_one_gh_mode(self):
-        build = {"intensity_cut": 80, "leakage_cut": 1.0, "gh_cut": 0.5, "gh_efficiency": 0.7}
+        reduction = self._reduction(gh_cut=0.5)
         with pytest.raises(ConfigError, match="exactly one"):
-            DL3ProducerConfig.parse({"source": "build", "build": build})
+            DL3ProducerConfig.parse({"source": "build", "build": {"reduction": [reduction]}})
+
+    @pytest.mark.parametrize("name", [None, "", ".standard", "../standard", "two/words"])
+    def test_build_rejects_unsafe_reduction_names(self, name):
+        with pytest.raises(ConfigError, match="path-safe name"):
+            DL3ProducerConfig.parse(
+                {"source": "build", "build": {"reduction": [self._reduction(name=name)]}}
+            )
+
+    def test_build_rejects_duplicate_reduction_names(self):
+        with pytest.raises(ConfigError, match="names must be unique"):
+            DL3ProducerConfig.parse(
+                {
+                    "source": "build",
+                    "build": {"reduction": [self._reduction(), self._reduction(gh_efficiency=0.9)]},
+                }
+            )
+
+    def test_build_rejects_unknown_reduction_option(self):
+        with pytest.raises(ConfigError, match=r"Unknown keys in \[dl3.build.reduction\[0\]\]"):
+            DL3ProducerConfig.parse(
+                {"source": "build", "build": {"reduction": [self._reduction(unknown=True)]}}
+            )
 
     def test_build_options_warned_and_skipped_in_link_mode(self):
         with pytest.warns(UserWarning, match=r'\[dl3.build\] options are ignored because source = "link"'):
@@ -194,11 +215,11 @@ class TestDL3Config:
                 {
                     "source": "build",
                     "link": {"irf_type": "point"},
-                    "build": {"intensity_cut": 80, "leakage_cut": 1.0, "gh_efficiency": 0.7},
+                    "build": {"reduction": [self._reduction()]},
                 }
             )
         assert config.link is None
-        assert config.build.event_filter is not None
+        assert config.build.reductions[0].event_filter is not None
 
     def test_link_options_default_to_both_irf_types(self):
         config = DL3ProducerConfig.parse({"source": "link", "link": {}})
@@ -238,5 +259,5 @@ class TestParsePipelineConfig:
         assert pipeline.dl3.enabled is False
 
     def test_top_level_irf_section_raises_moved_error(self):
-        with pytest.raises(ConfigError, match=r"moved under \[dl3.build\]"):
+        with pytest.raises(ConfigError, match=r"moved to \[\[dl3.build.reduction\]\]"):
             PipelineConfig.parse({"irf": {"intensity_cut": 80}})

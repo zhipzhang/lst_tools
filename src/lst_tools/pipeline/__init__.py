@@ -14,6 +14,7 @@ from .configs import (
     DL3BuildOptions,
     DL3LinkOptions,
     DL3ProducerConfig,
+    DL3ReductionOptions,
     PipelineConfig,
     SourceConfig,
 )
@@ -34,6 +35,7 @@ __all__ = [
     "DL3LinkOptions",
     "DL3Producer",
     "DL3ProducerConfig",
+    "DL3ReductionOptions",
     "DLProducer",
     "PipelineConfig",
     "RunSelection",

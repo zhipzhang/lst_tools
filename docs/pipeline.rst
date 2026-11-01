@@ -48,10 +48,11 @@ selects the matching declination line. With ``point_like = true`` it uses
 ``Gamma`` and writes point-like IRFs; otherwise it uses ``GammaDiffuse`` and
 writes full-enclosure IRFs.
 
-The event selection for built DL3 comes from ``[dl3.build]``: the
+Each ``[[dl3.build.reduction]]`` table defines one named DL3 selection. The
 quality filters (``intensity_cut``, ``leakage_cut``) are passed to the
 reduction and the gammaness cut (``gh_cut`` or ``gh_efficiency``) is carried
-inside the IRFs, so data and IRFs always agree.
+inside the IRFs, so data and IRFs always agree. Shared interpolation and MC
+options stay under ``[dl3.build]``.
 
 Workspace layout
 ----------------
@@ -63,21 +64,24 @@ Workspace layout
    ├── dl1/<zd_bin>/     # linked input (stage 2)
    ├── dl2/<zd_bin>/     # linked or built (stage 3)
    ├── irfs/             # built during the DL3 build
-   │   └── nsb_<nsb>/dec_<line>/<irf_type>/<cut_label>/
+   │   └── <reduction_name>/nsb_<nsb>/dec_<line>/<irf_type>/<cut_label>/
    │       └── theta_<zenith>_az_<azimuth>.irf.fits.gz
-   └── dl3/<zd_bin>/     # linked or built (stage 4)
+   └── dl3/<reduction_name>/<zd_bin>/  # built reductions (stage 4)
 
-Here ``<irf_type>`` is explicitly ``point`` or ``full-enclosure``, and
-``<cut_label>`` names the gammaness selection, ``gheff0.7`` for an
-energy-dependent efficiency or ``ghcut0.7`` for a fixed cut. The DL3
-reduction reads the directory matching its own configuration, so IRFs that
-differ in type or in gammaness cuts neither overwrite each other nor get
-mixed into one interpolation set.
+The unique ``<reduction_name>`` keeps DL3 products and IRFs separate, even
+when reductions differ only in their quality cuts. Here ``<irf_type>`` is
+explicitly ``point`` or ``full-enclosure``, and ``<cut_label>`` names the
+gammaness selection, ``gheff0.7`` for an energy-dependent efficiency or
+``ghcut0.7`` for a fixed cut. Each reduction reads the IRF directory matching
+its own configuration, so incompatible IRFs never share an interpolation set.
 
 Zenith bins include their lower edge and exclude their upper edge; the last
 bin also includes its upper edge. Reruns are incremental: existing links are
 kept, existing files are reused, and conflicting files are never replaced.
-Each level's build mode has an ``overwrite`` option to force rebuilding.
+Each level's build mode has an ``overwrite`` option to force rebuilding. A
+reduction name identifies its configuration: after changing its cuts, use a
+new name or enable ``overwrite`` to avoid reusing the previous DL3 files.
+DL4 generation should select one named reduction at a time.
 
 Configuration
 -------------
@@ -104,12 +108,21 @@ shape is one section per level, with the mode-specific options in
    interp_method = "linear"
    use_nearest_irf_node = false
    overwrite = false
-
    mc_dl2_directory = "20250212_v0.10.17_allsky_interp_dl2_irfs_nsb_$NSB_LEVEL"
+
+   [[dl3.build.reduction]]
+   name = "standard"
    intensity_cut = 80
    leakage_cut = 1.0
    gh_efficiency = 0.7    # or gh_cut = 0.7 for a fixed threshold
    point_like = false     # true: point/Gamma; false: full-enclosure/GammaDiffuse
+
+   [[dl3.build.reduction]]
+   name = "tight"
+   intensity_cut = 150
+   leakage_cut = 0.8
+   gh_efficiency = 0.9
+   point_like = false
 
 Options of the inactive mode are ignored with a warning, so both blocks may
 be kept while switching ``source`` during testing. A level with

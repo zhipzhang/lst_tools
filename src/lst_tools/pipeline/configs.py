@@ -12,6 +12,7 @@ with a warning, so a config can carry both blocks while flipping
 ``source`` during testing.
 """
 
+import re
 import warnings
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -205,75 +206,91 @@ class DL2ProducerConfig(_LevelProducerConfig[DL2LinkOptions, DL2BuildOptions]):
 
 
 @dataclass(frozen=True)
+class DL3ReductionOptions:
+    name: str
+    event_filter: EventFilter
+    point_like: bool = False
+
+    @classmethod
+    def parse(cls, section: dict, *, where: str = "dl3.build.reduction") -> Self:
+        _unknown_keys(
+            section,
+            {"name", "intensity_cut", "leakage_cut", "gh_cut", "gh_efficiency", "point_like"},
+            where,
+        )
+        name = section.get("name")
+        if not isinstance(name, str) or re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9_.-]*", name) is None:
+            raise ConfigError(
+                f"[{where}] requires a path-safe name matching [A-Za-z0-9][A-Za-z0-9_.-]*"
+            )
+        try:
+            event_filter = EventFilter.from_cuts(
+                intensity_cut=section["intensity_cut"],
+                leakage_cut=section["leakage_cut"],
+                gh_cut=section.get("gh_cut"),
+                gh_efficiency=section.get("gh_efficiency"),
+            )
+        except KeyError as missing:
+            raise ConfigError(f"[{where}] is missing required key {missing}") from missing
+        except ValueError as invalid:
+            raise ConfigError(f"[{where}] is invalid: {invalid}") from invalid
+        return cls(name=name, event_filter=event_filter, point_like=section.get("point_like", False))
+
+
+@dataclass(frozen=True)
 class DL3BuildOptions:
+    reductions: tuple[DL3ReductionOptions, ...] = ()
     output_directory: Path | None = None  # default <output_root>/dl3
     irf_directory: Path | None = None  # default <output_root>/irfs
     interp_method: str = "linear"
     use_nearest_irf_node: bool = False
     overwrite: bool = False
-    event_filter: EventFilter | None = None  # from [dl3.build.irf]
-    point_like: bool = False
     mc_dl2_directory: str = "20250212_v0.10.17_allsky_interp_dl2_irfs_nsb_$NSB_LEVEL"
 
     @classmethod
     def parse(cls, section: dict) -> Self:
+        legacy_cut_keys = {"intensity_cut", "leakage_cut", "gh_cut", "gh_efficiency", "point_like"}
+        if legacy_cut_keys & set(section):
+            raise ConfigError(
+                "DL3 cuts moved under [[dl3.build.reduction]]; give each reduction a unique name"
+            )
+        if "irf" in section:
+            raise ConfigError("[dl3.build.irf] was removed; use [[dl3.build.reduction]] instead")
         _unknown_keys(
             section,
             {
+                "reduction",
                 "output_directory",
                 "irf_directory",
                 "interp_method",
                 "use_nearest_irf_node",
                 "overwrite",
                 "mc_dl2_directory",
-                "intensity_cut",
-                "leakage_cut",
-                "gh_cut",
-                "gh_efficiency",
-                "point_like",
-                "irf",
             },
             "dl3.build",
         )
-        merged_section = dict(section)
-        if "irf" in section:
-            warnings.warn(
-                "[dl3.build.irf] is deprecated; configure IRF and event filter options directly under [dl3.build]",
-                DeprecationWarning,
-                stacklevel=2,
-            )
-            irf_section = section["irf"]
-            if not isinstance(irf_section, dict):
-                raise ConfigError("[dl3.build.irf] must be a table")
-            _unknown_keys(
-                irf_section,
-                {"intensity_cut", "leakage_cut", "gh_cut", "gh_efficiency", "point_like", "mc_dl2_directory"},
-                "dl3.build.irf",
-            )
-            for key, val in irf_section.items():
-                merged_section.setdefault(key, val)
-
-        try:
-            event_filter = EventFilter.from_cuts(
-                intensity_cut=merged_section["intensity_cut"],
-                leakage_cut=merged_section["leakage_cut"],
-                gh_cut=merged_section.get("gh_cut"),
-                gh_efficiency=merged_section.get("gh_efficiency"),
-            )
-        except KeyError as missing:
-            raise ConfigError(f"[dl3.build] is missing required key {missing}") from missing
-        except ValueError as invalid:
-            raise ConfigError(f"[dl3.build] is invalid: {invalid}") from invalid
+        raw_reductions = section.get("reduction")
+        if not isinstance(raw_reductions, list) or not raw_reductions:
+            raise ConfigError("[dl3.build] requires at least one [[dl3.build.reduction]] table")
+        reductions = []
+        names = set()
+        for index, raw_reduction in enumerate(raw_reductions):
+            if not isinstance(raw_reduction, dict):
+                raise ConfigError(f"[dl3.build.reduction[{index}]] must be a table")
+            reduction = DL3ReductionOptions.parse(raw_reduction, where=f"dl3.build.reduction[{index}]")
+            if reduction.name in names:
+                raise ConfigError(f"[dl3.build] reduction names must be unique; got duplicate {reduction.name!r}")
+            names.add(reduction.name)
+            reductions.append(reduction)
 
         return cls(
-            output_directory=_optional_path(merged_section.get("output_directory")),
-            irf_directory=_optional_path(merged_section.get("irf_directory")),
-            interp_method=merged_section.get("interp_method", "linear"),
-            use_nearest_irf_node=merged_section.get("use_nearest_irf_node", False),
-            overwrite=merged_section.get("overwrite", False),
-            event_filter=event_filter,
-            point_like=merged_section.get("point_like", False),
-            mc_dl2_directory=merged_section.get(
+            reductions=tuple(reductions),
+            output_directory=_optional_path(section.get("output_directory")),
+            irf_directory=_optional_path(section.get("irf_directory")),
+            interp_method=section.get("interp_method", "linear"),
+            use_nearest_irf_node=section.get("use_nearest_irf_node", False),
+            overwrite=section.get("overwrite", False),
+            mc_dl2_directory=section.get(
                 "mc_dl2_directory", "20250212_v0.10.17_allsky_interp_dl2_irfs_nsb_$NSB_LEVEL"
             ),
         )
@@ -339,11 +356,11 @@ class PipelineConfig:
         """Parse the ``[dl1]``/``[dl2]``/``[dl3]`` and optional ``[slurm]`` sections.
 
         Raises ConfigError for malformed sections and for the removed
-        top-level ``[irf]`` section (it moved under ``[dl3.build]``).
+        top-level ``[irf]`` section (it moved to ``[[dl3.build.reduction]]``).
         """
         if "irf" in raw_config:
             raise ConfigError(
-                "The top-level [irf] section moved under [dl3.build];"
+                "The top-level [irf] section moved to [[dl3.build.reduction]];"
                 " it configures our IRF production and is meaningless when linking"
             )
         return cls(

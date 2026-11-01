@@ -37,6 +37,7 @@ from .configs import (
     DL1ProducerConfig,
     DL2ProducerConfig,
     DL3ProducerConfig,
+    DL3ReductionOptions,
     SourceConfig,
 )
 from .selection import RunSelection
@@ -376,16 +377,10 @@ class DL3Producer(DLProducer):
         return Path(zenith_bin) / attrs.irf_type / attrs.mc_data_type / cut_label / attrs.path.name
 
     def build(self, selection: RunSelection) -> Counter:
-        """IRFs from each DL2 file's MC provenance, then reduce our DL2 to DL3.
-
-        Two stages run together: one IRF per MC node of each DL2 file's
-        MC group (NSB tuning + declination line, read back from the DL2
-        provenance), then the DL2 files are reduced per zenith bin against
-        the IRF interpolation sets of their own MC group.
-        """
+        """Build every configured reduction in its own IRF and DL3 namespace."""
         build_options = self.config.build
-        if build_options is None or build_options.event_filter is None:  # pragma: no cover - guarded by config parsing
-            raise ValueError("dl3: building requires [dl3.build] (the shared event selection)")
+        if build_options is None or not build_options.reductions:  # pragma: no cover - guarded by config parsing
+            raise ValueError("dl3: building requires at least one [[dl3.build.reduction]] table")
         if self.source is None:
             raise ValueError("dl3: building requires the analysis source (SourceConfig with name, ra, dec)")
 
@@ -394,12 +389,24 @@ class DL3Producer(DLProducer):
             warnings.warn(f"dl3: no DL2 directory at {self.dl2_directory}; skipping", stacklevel=2)
             return counts
 
-        irf_config = IRFConfig(build_options.event_filter, point_like=build_options.point_like)
+        for reduction in build_options.reductions:
+            self._build_reduction(reduction, self.source, counts)
+        return counts
+
+    def _build_reduction(
+        self,
+        reduction: DL3ReductionOptions,
+        source: SourceConfig,
+        counts: Counter,
+    ) -> None:
+        build_options = self.config.build
+        if build_options is None:  # pragma: no cover - guarded by build()
+            raise ValueError("dl3: building requires [dl3.build]")
+
+        irf_config = IRFConfig(reduction.event_filter, point_like=reduction.point_like)
         event_filter = irf_config.event_filter
-        generator = IRFGenerator(
-            build_options.irf_directory or self.output_root / "irfs",
-            irf_config,
-        )
+        irfs_root = (build_options.irf_directory or self.output_root / "irfs") / reduction.name
+        generator = IRFGenerator(irfs_root, irf_config)
 
         # One IRF per MC node, deduplicated across DL2 files of the same group.
         nodes: dict[Path, IRFNode] = {}
@@ -415,13 +422,13 @@ class DL3Producer(DLProducer):
                 nodes.setdefault(node.relative_path, node)
         for node in nodes.values():
             generator.make_irf_node(node)
-        counts["dl3:irf_nodes"] = len(nodes)
+        counts["dl3:irf_nodes"] += len(nodes)
 
         reducer = DL3Reducer(
             irfs_root=generator.base_path,
-            source_name=self.source.name,
-            source_ra=self.source.ra,
-            source_dec=self.source.dec,
+            source_name=source.name,
+            source_ra=source.ra,
+            source_dec=source.dec,
             irf_config=irf_config,
             interp_method=build_options.interp_method,
             use_nearest_irf_node=build_options.use_nearest_irf_node,
@@ -434,8 +441,6 @@ class DL3Producer(DLProducer):
             if not dl2_files:
                 counts["dl3:no_dl2"] += 1
                 continue
-            reduced = reducer.reduce(dl2_files, self.output_dir / dl2_dir.name)
+            reduced = reducer.reduce(dl2_files, self.output_dir / reduction.name / dl2_dir.name)
             counts["dl3:reduced"] += len(reduced)
             counts["dl3:failed"] += len(dl2_files) - len(reduced)
-
-        return counts

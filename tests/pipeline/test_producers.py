@@ -20,6 +20,7 @@ from lst_tools.pipeline import (
     DL3LinkOptions,
     DL3Producer,
     DL3ProducerConfig,
+    DL3ReductionOptions,
     RunSelection,
     SlurmConfig,
     SlurmDL2Config,
@@ -524,10 +525,17 @@ class TestDL3Producer:
 
     @staticmethod
     def _build_config(**overrides):
+        reduction = DL3ReductionOptions(
+            name="standard",
+            event_filter=overrides.pop(
+                "event_filter", EventFilter.from_cuts(intensity_cut=80, leakage_cut=1.0, gh_cut=0.7)
+            ),
+            point_like=overrides.pop("point_like", False),
+        )
         options = {
             "output_directory": None,
             "irf_directory": None,
-            "event_filter": EventFilter.from_cuts(intensity_cut=80, leakage_cut=1.0, gh_cut=0.7),
+            "reductions": overrides.pop("reductions", (reduction,)),
         }
         options.update(overrides)
         return DL3ProducerConfig(enabled=True, source="build", build=DL3BuildOptions(**options))
@@ -550,8 +558,8 @@ class TestDL3Producer:
         assert counts["dl3:irf_nodes"] == 1
         assert counts["dl3:reduced"] == 2
         assert counts["dl3:failed"] == 0
-        assert generator_bases == [tmp_path / "out" / "irfs"]
-        assert reductions == [(dl2_files, tmp_path / "out" / "dl3" / "zd_20_30")]
+        assert generator_bases == [tmp_path / "out" / "irfs" / "standard"]
+        assert reductions == [(dl2_files, tmp_path / "out" / "dl3" / "standard" / "zd_20_30")]
         campaign = MC_DL2_PATH / "20250212_v0.10.17_allsky_interp_dl2_irfs_nsb_0.38"
         assert campaigns == [campaign, campaign]
 
@@ -570,6 +578,36 @@ class TestDL3Producer:
         assert made_nodes[0].gh_value == pytest.approx(0.7)
         assert made_nodes[0].cut_label == "ghcut0.7"
 
+    def test_build_isolates_reductions_with_the_same_gammaness_cut(self, tmp_path, monkeypatch):
+        dl2_files = self._make_dl2_tree(tmp_path, 10623)
+        made_nodes, reductions, generator_bases, _ = self._fake_irf_and_reduction(monkeypatch)
+        reduction_options = tuple(
+            DL3ReductionOptions(
+                name=name,
+                event_filter=EventFilter.from_cuts(intensity_cut=intensity, leakage_cut=1.0, gh_cut=0.7),
+            )
+            for name, intensity in (("standard", 80), ("quality_tight", 150))
+        )
+        producer = DL3Producer(
+            self._build_config(reductions=reduction_options),
+            tmp_path / "out",
+            source=SourceConfig(name="Crab", ra=83.6, dec=22.0),
+        )
+
+        counts = producer.produce(make_selection([RUN_10623]))
+
+        assert [node.cut_label for node in made_nodes] == ["ghcut0.7", "ghcut0.7"]
+        assert generator_bases == [
+            tmp_path / "out" / "irfs" / "standard",
+            tmp_path / "out" / "irfs" / "quality_tight",
+        ]
+        assert reductions == [
+            (dl2_files, tmp_path / "out" / "dl3" / "standard" / "zd_20_30"),
+            (dl2_files, tmp_path / "out" / "dl3" / "quality_tight" / "zd_20_30"),
+        ]
+        assert counts["dl3:irf_nodes"] == 2
+        assert counts["dl3:reduced"] == 2
+
     def test_build_uses_configured_irf_directory(self, tmp_path, monkeypatch):
         self._make_dl2_tree(tmp_path, 10623)
         _, reductions, generator_bases, _ = self._fake_irf_and_reduction(monkeypatch)
@@ -578,7 +616,7 @@ class TestDL3Producer:
 
         producer.produce(make_selection([RUN_10623]))
 
-        assert generator_bases == [tmp_path / "my_irfs"]
+        assert generator_bases == [tmp_path / "my_irfs" / "standard"]
         assert len(reductions) == 1
 
     def test_build_uses_absolute_mc_dl2_directory(self, tmp_path, monkeypatch):

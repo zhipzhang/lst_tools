@@ -82,6 +82,12 @@ overwrite = false
 # $NSB_LEVEL replaced from each real DL2 file's provenance.
 mc_dl2_directory = "20250212_v0.10.17_allsky_interp_dl2_irfs_nsb_$NSB_LEVEL"
 
+# Add one [[dl3.build.reduction]] table per DL3 selection. Names must be
+# unique and become directory names under both dl3/ and irfs/, keeping
+# products with different cuts separate.
+[[dl3.build.reduction]]
+name = "standard"
+
 # Event selection shared by IRF generation and DL3 reduction: the reduction
 # takes its quality filters from here and the gammaness cut from the IRF
 # itself, so data and IRFs can never disagree. Exactly one of gh_cut (fixed
