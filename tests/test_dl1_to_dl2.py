@@ -87,7 +87,7 @@ class TestMain:
             captured["model_directory"] = model_directory
             captured["overwrite"] = overwrite
 
-        monkeypatch.setattr(dl1_to_dl2, "dl1_to_dl2_batch", fake_batch)
+        monkeypatch.setattr("lst_tools.dl1.dl1event.dl1_to_dl2_batch", fake_batch)
 
         dl1_to_dl2.main(
             [
@@ -124,7 +124,7 @@ class TestMain:
         def fake_batch(files, out_root, model_directory, overwrite=False):
             calls.append((list(files), Path(out_root), Path(model_directory), overwrite))
 
-        monkeypatch.setattr(dl1_to_dl2, "dl1_to_dl2_batch", fake_batch)
+        monkeypatch.setattr("lst_tools.dl1.dl1event.dl1_to_dl2_batch", fake_batch)
         monkeypatch.setattr(
             "lst_tools.dl1.dl1event.LSTDL1Event",
             lambda path: SimpleNamespace(nsb_level=nsb_by_file[Path(path)]),

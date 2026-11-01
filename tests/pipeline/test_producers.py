@@ -245,25 +245,25 @@ class TestDL2Producer:
             for dl1_file in files:
                 (out_root / Path(dl1_file).name.replace("dl1", "dl2", 1)).touch()
 
-        monkeypatch.setattr(producers_module, "dl1_to_dl2_batch", fake_batch)
+        monkeypatch.setattr("lst_tools.dl1.dl1event.dl1_to_dl2_batch", fake_batch)
         return calls
 
     def test_build_reconstructs_pending_dl1(self, tmp_path, monkeypatch):
         (dl1_file,) = self._make_dl1_tree(tmp_path, 10623)
         calls = self._fake_batch(monkeypatch)
+        model_directory = tmp_path / "models"
+        model_directory.mkdir()
         config = DL2ProducerConfig(
             enabled=True,
             source="build",
-            build=DL2BuildOptions(rf_directory="/models/nsb_tuning_0.22/dec_347"),
+            build=DL2BuildOptions(rf_directory=str(model_directory)),
         )
         producer = DL2Producer(config, tmp_path / "out")
 
         counts = producer.produce(make_selection([RUN_10623]))
 
         assert counts["dl2:built"] == 1
-        assert calls == [
-            ([dl1_file], tmp_path / "out" / "dl2" / "zd_20_30", Path("/models/nsb_tuning_0.22/dec_347"), False)
-        ]
+        assert calls == [([dl1_file], tmp_path / "out" / "dl2" / "zd_20_30", model_directory, False)]
 
     def test_build_resolves_nsb_level_placeholder_per_run(self, tmp_path, monkeypatch):
         dl1_files = self._make_dl1_tree(tmp_path, 10623, 10624)
@@ -273,31 +273,36 @@ class TestDL2Producer:
             "lst_tools.dl1.dl1event.LSTDL1Event",
             lambda path: SimpleNamespace(nsb_level=nsb_by_file[Path(path)]),
         )
+        model_directories = {
+            tmp_path / "models" / "nsb_tuning_0.22" / "dec_347",
+            tmp_path / "models" / "nsb_tuning_0.38" / "dec_347",
+        }
+        for model_directory in model_directories:
+            model_directory.mkdir(parents=True)
         config = DL2ProducerConfig(
             enabled=True,
             source="build",
-            build=DL2BuildOptions(rf_directory="/models/nsb_tuning_$NSB_LEVEL/dec_347"),
+            build=DL2BuildOptions(rf_directory=str(tmp_path / "models" / "nsb_tuning_$NSB_LEVEL" / "dec_347")),
         )
         producer = DL2Producer(config, tmp_path / "out")
 
         counts = producer.produce(make_selection([RUN_10623, RUN_10624]))
 
         assert counts["dl2:built"] == 2
-        assert {call[2] for call in calls} == {
-            Path("/models/nsb_tuning_0.22/dec_347"),
-            Path("/models/nsb_tuning_0.38/dec_347"),
-        }
+        assert {call[2] for call in calls} == model_directories
 
     def test_build_skips_existing_dl2_unless_overwrite(self, tmp_path, monkeypatch):
         self._make_dl1_tree(tmp_path, 10623)
         calls = self._fake_batch(monkeypatch)
+        model_directory = tmp_path / "models"
+        model_directory.mkdir()
         dl2_file = tmp_path / "out" / "dl2" / "zd_20_30" / "dl2_LST-1.Run10623.h5"
         dl2_file.parent.mkdir(parents=True)
         dl2_file.touch()
         config = DL2ProducerConfig(
             enabled=True,
             source="build",
-            build=DL2BuildOptions(rf_directory="/models/nsb_tuning_0.22/dec_347"),
+            build=DL2BuildOptions(rf_directory=str(model_directory)),
         )
         producer = DL2Producer(config, tmp_path / "out")
 
@@ -310,7 +315,7 @@ class TestDL2Producer:
         config_overwrite = DL2ProducerConfig(
             enabled=True,
             source="build",
-            build=DL2BuildOptions(rf_directory="/models/nsb_tuning_0.22/dec_347", overwrite=True),
+            build=DL2BuildOptions(rf_directory=str(model_directory), overwrite=True),
         )
         counts = DL2Producer(config_overwrite, tmp_path / "out").produce(make_selection([RUN_10623]))
 
@@ -401,10 +406,12 @@ class TestDL2Producer:
     def test_produce_uses_local_build_when_slurm_disabled(self, tmp_path, monkeypatch):
         self._make_dl1_tree(tmp_path, 10001)
         calls = self._fake_batch(monkeypatch)
+        model_directory = tmp_path / "models"
+        model_directory.mkdir()
         config = DL2ProducerConfig(
             enabled=True,
             source="build",
-            build=DL2BuildOptions(rf_directory="/models/nsb_tuning_0.22/dec_347"),
+            build=DL2BuildOptions(rf_directory=str(model_directory)),
         )
         slurm_cfg = SlurmConfig(enabled=False)
         producer = DL2Producer(config, tmp_path / "out", slurm_config=slurm_cfg)

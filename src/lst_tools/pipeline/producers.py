@@ -19,7 +19,7 @@ from collections.abc import Sequence
 from pathlib import Path
 from typing import Any, ClassVar, Literal
 
-from lst_tools.dl1.dl1event import dl1_to_dl2_batch, group_dl1_by_model_directory
+from lst_tools.dl1.dl1event import reconstruct_dl1_to_dl2
 from lst_tools.dl2 import LSTDL2EventTable
 from lst_tools.dl3 import DL3Reducer
 from lst_tools.finder import (
@@ -288,14 +288,13 @@ class DL2Producer(DLProducer):
             if not pending:
                 continue
 
-            for model_directory, group in group_dl1_by_model_directory(pending, rf_template).items():
-                dl1_to_dl2_batch(group, output_dir, model_directory, overwrite=overwrite)
-                for dl1_file in group:
-                    if (output_dir / dl1_file.name.replace("dl1", "dl2", 1)).exists():
-                        counts["dl2:built"] += 1
-                    else:
-                        warnings.warn(f"DL1ToDL2Tool did not create the DL2 file for {dl1_file}", stacklevel=2)
-                        counts["dl2:failed"] += 1
+            reconstruct_dl1_to_dl2(pending, output_dir, rf_template, overwrite=overwrite)
+            for dl1_file in pending:
+                if (output_dir / dl1_file.name.replace("dl1", "dl2", 1)).exists():
+                    counts["dl2:built"] += 1
+                else:
+                    warnings.warn(f"DL1ToDL2Tool did not create the DL2 file for {dl1_file}", stacklevel=2)
+                    counts["dl2:failed"] += 1
 
         return counts
 

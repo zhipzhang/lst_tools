@@ -1,4 +1,3 @@
-import re
 from collections.abc import Iterable
 from os import PathLike
 from pathlib import Path
@@ -72,3 +71,26 @@ def dl1_to_dl2_batch(files: Iterable[str | PathLike[str]], out_root, model_direc
         overwrite=overwrite,
     )
     run_tool(tool)
+
+
+def reconstruct_dl1_to_dl2(
+    files: Iterable[str | PathLike[str]],
+    out_root: str | PathLike[str],
+    model_directory_template: str | PathLike[str],
+    overwrite: bool = False,
+) -> None:
+    """Reconstruct DL1 files, grouping them by their resolved RF model directory."""
+    dl1_files = [Path(file) for file in files]
+    missing_files = [file for file in dl1_files if not file.is_file()]
+    if missing_files:
+        raise FileNotFoundError(f"The following input files do not exist: {missing_files}")
+
+    model_groups = group_dl1_by_model_directory(dl1_files, model_directory_template)
+    missing_models = [directory for directory in model_groups if not directory.is_dir()]
+    if missing_models:
+        raise FileNotFoundError(f"Model directories do not exist or are not directories: {missing_models}")
+
+    out_root = Path(out_root)
+    out_root.mkdir(parents=True, exist_ok=True)
+    for model_directory, group in model_groups.items():
+        dl1_to_dl2_batch(group, out_root, model_directory, overwrite=overwrite)

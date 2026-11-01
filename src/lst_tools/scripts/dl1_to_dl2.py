@@ -6,7 +6,7 @@ Intended as both a standalone CLI tool and a worker entrypoint for SLURM batch j
 import argparse
 from pathlib import Path
 
-from lst_tools.dl1.dl1event import dl1_to_dl2_batch, group_dl1_by_model_directory
+from lst_tools.dl1.dl1event import reconstruct_dl1_to_dl2
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -54,23 +54,15 @@ def main(argv: list[str] | None = None) -> None:
     parser = build_parser()
     args = parser.parse_args(argv)
 
-    missing_files = [f for f in args.input_files if not f.is_file()]
-    if missing_files:
-        parser.error(f"The following input files do not exist: {missing_files}")
-
-    model_groups = group_dl1_by_model_directory(args.input_files, args.model_dir)
-    missing_models = [directory for directory in model_groups if not directory.is_dir()]
-    if missing_models:
-        parser.error(f"Model directories do not exist or are not directories: {missing_models}")
-
-    args.output_dir.mkdir(parents=True, exist_ok=True)
-    for model_directory, files in model_groups.items():
-        dl1_to_dl2_batch(
-            files=files,
+    try:
+        reconstruct_dl1_to_dl2(
+            files=args.input_files,
             out_root=args.output_dir,
-            model_directory=model_directory,
+            model_directory_template=args.model_dir,
             overwrite=args.overwrite,
         )
+    except FileNotFoundError as error:
+        parser.error(str(error))
     print(f"Reconstructed {len(args.input_files)} DL1 file(s) into {args.output_dir}")
 
 
