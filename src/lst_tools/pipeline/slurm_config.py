@@ -62,6 +62,34 @@ class SlurmDL2Config:
 
 
 @dataclass(frozen=True)
+class SlurmDL3Config:
+    """Resources for one multiprocess DL3 build job."""
+
+    cpus_per_task: int = 4
+    mem: str = "16GB"
+    time: str = "04:00:00"
+    extra_args: dict[str, Any] = field(default_factory=dict)
+
+    @classmethod
+    def parse(cls, section: dict | None) -> Self:
+        if section is None:
+            return cls()
+        _unknown_keys(section, {"cpus_per_task", "mem", "time", "extra_args"}, "slurm.dl3")
+        try:
+            cpus_per_task = int(section.get("cpus_per_task", 4))
+        except (TypeError, ValueError) as err:
+            raise ConfigError(f"[slurm.dl3] cpus_per_task must be an integer: {err}") from err
+        if cpus_per_task <= 0:
+            raise ConfigError(f"[slurm.dl3] cpus_per_task must be positive, got {cpus_per_task}")
+        return cls(
+            cpus_per_task=cpus_per_task,
+            mem=str(section.get("mem", "16GB")),
+            time=str(section.get("time", "04:00:00")),
+            extra_args=dict(section.get("extra_args", {})),
+        )
+
+
+@dataclass(frozen=True)
 class SlurmConfig:
     """General SLURM configuration for submitting pipeline stages as cluster jobs."""
 
@@ -71,6 +99,7 @@ class SlurmConfig:
     log_directory: Path = Path("slurm_logs")
     env_setup: str | None = None
     dl2: SlurmDL2Config = field(default_factory=SlurmDL2Config)
+    dl3: SlurmDL3Config = field(default_factory=SlurmDL3Config)
     extra_args: dict[str, Any] = field(default_factory=dict)
 
     @classmethod
@@ -79,7 +108,7 @@ class SlurmConfig:
             return cls(enabled=False)
         _unknown_keys(
             section,
-            {"enabled", "partition", "account", "log_directory", "env_setup", "dl2", "extra_args"},
+            {"enabled", "partition", "account", "log_directory", "env_setup", "dl2", "dl3", "extra_args"},
             "slurm",
         )
 
@@ -93,8 +122,8 @@ class SlurmConfig:
         if env_setup is not None:
             env_setup = str(env_setup)
 
-        dl2_section = section.get("dl2")
-        dl2 = SlurmDL2Config.parse(dl2_section)
+        dl2 = SlurmDL2Config.parse(section.get("dl2"))
+        dl3 = SlurmDL3Config.parse(section.get("dl3"))
         extra_args = dict(section.get("extra_args", {}))
 
         return cls(
@@ -104,5 +133,6 @@ class SlurmConfig:
             log_directory=log_directory,
             env_setup=env_setup,
             dl2=dl2,
+            dl3=dl3,
             extra_args=extra_args,
         )

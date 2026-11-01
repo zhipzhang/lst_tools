@@ -1,5 +1,6 @@
 import json
 import subprocess
+from collections.abc import Iterable
 from pathlib import Path
 
 from .config import IRFConfig
@@ -54,6 +55,10 @@ class IRFGenerator:
                 f"IRF node {node.pointing_name} is (irf_type, gh_type, gh_value) = {actual},"
                 f" but the generator is configured for {expected}"
             )
+
+    def make_irf_nodes(self, nodes: Iterable[IRFNode]) -> list[Path]:
+        """Create or reuse a sequence of IRFs with this generator's configuration."""
+        return [self.make_irf_node(node) for node in nodes]
 
     def make_irf_node(self, node: IRFNode) -> Path:
         """Create the node's IRF if needed and return its FITS file path.

@@ -2,7 +2,7 @@ from pathlib import Path
 
 import pytest
 
-from lst_tools.pipeline import PipelineConfig, SlurmConfig, SlurmDL2Config
+from lst_tools.pipeline import PipelineConfig, SlurmConfig, SlurmDL2Config, SlurmDL3Config
 from lst_tools.pipeline.slurm_config import ConfigError
 
 
@@ -53,6 +53,24 @@ class TestSlurmDL2Config:
             SlurmDL2Config.parse({"unknown_key": 123})
 
 
+class TestSlurmDL3Config:
+    def test_default_values(self):
+        config = SlurmDL3Config.parse(None)
+        assert config.cpus_per_task == 4
+        assert config.mem == "16GB"
+        assert config.time == "04:00:00"
+        assert config.extra_args == {}
+
+    def test_custom_values(self):
+        config = SlurmDL3Config.parse(
+            {"cpus_per_task": 12, "mem": "32GB", "time": "06:00:00", "extra_args": {"qos": "priority"}}
+        )
+        assert config.cpus_per_task == 12
+        assert config.mem == "32GB"
+        assert config.time == "06:00:00"
+        assert config.extra_args == {"qos": "priority"}
+
+
 class TestSlurmConfig:
     def test_default_values_when_none(self):
         config = SlurmConfig.parse(None)
@@ -62,6 +80,7 @@ class TestSlurmConfig:
         assert config.log_directory == Path("slurm_logs")
         assert config.env_setup is None
         assert config.dl2 == SlurmDL2Config()
+        assert config.dl3 == SlurmDL3Config()
         assert config.extra_args == {}
 
     def test_custom_values(self):
@@ -73,6 +92,7 @@ class TestSlurmConfig:
                 "log_directory": "/data/logs",
                 "env_setup": "conda activate lst-env",
                 "dl2": {"runs_per_job": 3},
+                "dl3": {"cpus_per_task": 12},
                 "extra_args": {"qos": "priority"},
             }
         )
@@ -82,6 +102,7 @@ class TestSlurmConfig:
         assert config.log_directory == Path("/data/logs")
         assert config.env_setup == "conda activate lst-env"
         assert config.dl2.runs_per_job == 3
+        assert config.dl3.cpus_per_task == 12
         assert config.extra_args == {"qos": "priority"}
 
     def test_unknown_keys_rejected(self):

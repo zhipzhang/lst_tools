@@ -190,7 +190,13 @@ def make_producers(
         dl1_directory=dl1.output_dir,
         slurm_config=pipeline_config.slurm,
     )
-    dl3 = DL3Producer(pipeline_config.dl3, output_root, source=source_config, dl2_directory=dl2.output_dir)
+    dl3 = DL3Producer(
+        pipeline_config.dl3,
+        output_root,
+        source=source_config,
+        dl2_directory=dl2.output_dir,
+        slurm_config=pipeline_config.slurm,
+    )
     producers = [dl1, dl2, dl3]
     if stage == "all":
         return producers

@@ -54,6 +54,20 @@ reduction and the gammaness cut (``gh_cut`` or ``gh_efficiency``) is carried
 inside the IRFs, so data and IRFs always agree. Shared interpolation and MC
 options stay under ``[dl3.build]``.
 
+DL3 builds follow ``RunSelection``. Each selected, binned run must have
+exactly one DL2 file under its assigned ``dl2/<zd_bin>/`` directory. Missing
+inputs stop the build with a list of runs and directories; ambiguous matches
+are rejected. Unselected files are ignored, and unbinned runs are skipped
+with a warning. An empty selection performs no work and submits no job.
+The selected file paths and reduction definitions are saved with a SLURM
+build, and the worker checks that the files still exist before starting.
+
+The build prepares IRF interpolation sets in parallel, then runs named
+reductions in parallel after all IRFs are ready. Workers are bounded by the
+local CPU count, or the job's CPU allocation under SLURM. With SLURM enabled,
+the same build runs inside one job; ``[slurm.dl3]`` sets its CPU, memory, and
+walltime allocation.
+
 Workspace layout
 ----------------
 
@@ -123,6 +137,11 @@ shape is one section per level, with the mode-specific options in
    leakage_cut = 0.8
    gh_efficiency = 0.9
    point_like = false
+
+   [slurm.dl3]
+   cpus_per_task = 8
+   mem = "40GB"
+   time = "04:00:00"
 
 Options of the inactive mode are ignored with a warning, so both blocks may
 be kept while switching ``source`` during testing. A level with

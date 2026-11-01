@@ -64,9 +64,10 @@ overwrite = false
 #[dl2.link]
 #output_directory = "/data/linked/dl2"   # default: <output>/dl2
 
-# Stage 5+6 (DL3): reduce our DL2 to DL3 observations with IRFs generated
-# from the MC test dataset matching each DL2 file's provenance, or link
-# existing DL3 products instead.
+# Stage 5+6 (DL3): reduce selected runs to DL3 observations with matching
+# IRFs, or link existing DL3 products instead. Building requires one DL2
+# file per selected run in its assigned zenith bin; missing inputs stop
+# the build, and unselected files are ignored.
 [dl3]
 enabled = true
 source = "build" # "build" | "link"
@@ -103,8 +104,8 @@ point_like = false # true for point-like IRFs; false for full-enclosure
 #irf_type = "full-enclosure"     # or "point"; omit to link both
 
 # Optional SLURM execution:
-# When enabled = true, compute-heavy stages (like DL2 building) submit parallel
-# batch jobs to the SLURM cluster via simple_slurm rather than running sequentially.
+# When enabled = true, compute-heavy stages submit jobs via simple_slurm.
+# DL3 uses one job whose worker parallelizes IRF groups and reductions.
 [slurm]
 enabled = true
 partition = "long"
@@ -117,3 +118,10 @@ runs_per_job = 3  # Max number of DL1 runs processed by a single SLURM job
 cpus_per_task = 8 # Number of CPU cores allocated per job
 mem = "40GB"      # Memory limit per job
 time = "02:00:00" # Walltime limit (hh:mm:ss)
+
+[slurm.dl3]
+# One job runs both phases, with at most cpus_per_task workers preparing
+# IRF sets or running named reductions.
+cpus_per_task = 8
+mem = "40GB"
+time = "04:00:00"

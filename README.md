@@ -94,6 +94,19 @@ The unique reduction name keeps products separate even when only their
 quality cuts differ; `<irf_type>` is `point` or `full-enclosure`, and
 `<cut_label>` names the gammaness selection (`gheff0.7` or `ghcut0.7`).
 
+DL3 builds follow `RunSelection`: each selected, binned run must have exactly
+one DL2 file under its assigned `dl2/<zd_bin>/` directory. Missing inputs
+stop the build with a list of runs and directories; ambiguous matches are
+rejected. Unselected files are ignored, and unbinned runs are skipped with
+a warning. The same selected inputs are saved with a SLURM build and checked
+again when its worker starts.
+
+DL3 builds prepare IRF interpolation sets in parallel, then run named
+reductions in parallel after all IRFs are ready. Workers are bounded by the
+local CPU count, or the job's CPU allocation under SLURM. With SLURM enabled,
+the same build runs inside one job; `[slurm.dl3]` sets its CPU, memory, and
+walltime allocation.
+
 Zenith bins include their lower edge and exclude their upper edge; the
 last bin also includes its upper edge. Reruns are incremental: existing
 links are kept, existing files are reused, and conflicting files are
