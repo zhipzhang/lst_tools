@@ -34,10 +34,10 @@ Stages
 4. **DL3** (``[dl3]``) — either link existing DL3 products (newest version,
    optionally narrowed by ``[dl3.link] irf_type``), or build them: IRFs are
    generated from the MC test dataset matching each DL2 file's provenance
-   (``[dl3.build.irf]``), then every run is reduced to a DL3 FITS
+   (``[dl3.build]``), then every run is reduced to a DL3 FITS
    observation, interpolating the IRFs to the run's pointing.
 
-The MC campaign is selected by ``[dl3.build.irf] mc_dl2_directory``. This is
+The MC campaign is selected by ``[dl3.build] mc_dl2_directory``. This is
 a directory template: ``$NSB_LEVEL`` is replaced independently for every DL2
 file using its provenance. Relative paths resolve below
 ``/fefs/aswg/data/mc/DL2/AllSky``; absolute paths are also accepted. The
@@ -46,7 +46,7 @@ selects the matching declination line. With ``point_like = true`` it uses
 ``Gamma`` and writes point-like IRFs; otherwise it uses ``GammaDiffuse`` and
 writes full-enclosure IRFs.
 
-The event selection for built DL3 comes from ``[dl3.build.irf]``: the
+The event selection for built DL3 comes from ``[dl3.build]``: the
 quality filters (``intensity_cut``, ``leakage_cut``) are passed to the
 reduction and the gammaness cut (``gh_cut`` or ``gh_efficiency``) is carried
 inside the IRFs, so data and IRFs always agree.
@@ -100,7 +100,6 @@ shape is one section per level, with the mode-specific options in
    use_nearest_irf_node = false
    overwrite = false
 
-   [dl3.build.irf]
    mc_dl2_directory = "20250212_v0.10.17_allsky_interp_dl2_irfs_nsb_$NSB_LEVEL"
    intensity_cut = 80
    leakage_cut = 1.0

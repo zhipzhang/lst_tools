@@ -384,7 +384,7 @@ class DL3Producer(DLProducer):
         """
         build_options = self.config.build
         if build_options is None or build_options.event_filter is None:  # pragma: no cover - guarded by config parsing
-            raise ValueError("dl3: building requires [dl3.build.irf] (the shared event selection)")
+            raise ValueError("dl3: building requires [dl3.build] (the shared event selection)")
         if self.source is None:
             raise ValueError("dl3: building requires the analysis source (SourceConfig with name, ra, dec)")
 

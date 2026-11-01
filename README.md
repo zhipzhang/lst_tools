@@ -74,16 +74,16 @@ The stages:
 4. **DL3** (`[dl3]`) — either link existing DL3 products (newest
    version, optionally narrowed by `[dl3.link] irf_type`), or build them:
    IRFs are generated from the MC test dataset matching each DL2 file's
-   provenance (`[dl3.build.irf]`), then every run is reduced to a DL3
+   provenance (`[dl3.build]`), then every run is reduced to a DL3
    FITS observation, interpolating the IRFs to the run's pointing.
 
-The MC campaign comes from `[dl3.build.irf] mc_dl2_directory`, a template
+The MC campaign comes from `[dl3.build] mc_dl2_directory`, a template
 whose `$NSB_LEVEL` is replaced from each DL2 file's provenance. Relative
 paths resolve below `/fefs/aswg/data/mc/DL2/AllSky`; absolute paths are also
 accepted. `point_like = true` selects `Gamma` MC and point-like IRFs, while
 the default `false` selects `GammaDiffuse` and full-enclosure IRFs.
 
-The event selection for built DL3 comes from `[dl3.build.irf]`: the
+The event selection for built DL3 comes from `[dl3.build]`: the
 quality filters (`intensity_cut`, `leakage_cut`) are passed to the
 reduction and the gammaness cut (`gh_cut` or `gh_efficiency`) is carried
 inside the IRFs, so data and IRFs always agree. Generated IRFs are stored
