@@ -56,3 +56,16 @@ def test_repr_summarizes_counts_and_edges():
     selection = make_selection([*BINNED, UNBINNED])
 
     assert repr(selection) == "RunSelection(2 binned runs, 1 unbinned, edges=(0.0, 20.0, 30.0))"
+
+
+def test_empty_selection_iterates_and_reprs_without_a_mask_error():
+    # An empty ``zenith_bin`` column produces a float mask; pandas would
+    # read it as column labels rather than rows.
+    selection = RunSelection(
+        edges=(0.0, 20.0, 30.0),
+        selected=pd.DataFrame({"run_number": [], "date": [], "zenith_bin": []}),
+    )
+
+    assert list(selection) == []
+    assert selection.unbinned_run_numbers == []
+    assert repr(selection) == "RunSelection(0 binned runs, 0 unbinned, edges=(0.0, 20.0, 30.0))"

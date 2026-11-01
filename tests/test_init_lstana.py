@@ -10,6 +10,7 @@ from astropy.coordinates import SkyCoord
 
 import lst_tools.catalog
 from lst_tools.catalog import CatalogSource
+from lst_tools.datacheck import DataCheckTables
 from lst_tools.pipeline import PipelineConfig, RunSelection
 from lst_tools.scripts import init_lstana
 
@@ -179,6 +180,124 @@ class TestAwaySourceSelection:
         assert captured["extension_factor"] == extension_factor
 
 
+def make_datacheck_tables():
+    """Datacheck tables carrying every column the default statistics need."""
+    runs = [1, 2, 3]
+    return DataCheckTables(
+        flatfield=pd.DataFrame({"runnumber": runs, "num_flatfield": [1, 1, 1]}),
+        cosmics_intensity_spectrum=pd.DataFrame(
+            {
+                "runnumber": runs,
+                "yyyymmdd": [20240101, 20240101, 20240102],
+                "ZD_corrected_cosmics_rate_at_422_pe": [10.0, 11.0, 12.0],
+                "intensity_at_reference_rate": [100.0, 110.0, 120.0],
+                "light_yield": [1.0, 1.1, 1.2],
+                "ZD_corrected_cosmics_spectral_index": [-2.6, -2.5, -2.4],
+                "intensity_spectrum_fit_p_value": [0.5, 0.6, 0.7],
+                "ZD_corrected_intensity_at_half_peak_rate": [50.0, 51.0, 52.0],
+                "ra_tel": [83.6, 83.7, 83.8],
+                "dec_tel": [22.0, 22.0, 22.0],
+                "cos_zenith": [np.cos(np.radians(z)) for z in (15.0, 25.0, 35.0)],
+                "diffuse_nsb_std": [0.1, 0.1, 0.1],
+            }
+        ),
+        runsummary=pd.DataFrame(
+            {
+                "runnumber": runs,
+                "num_flatfield": [1, 1, 1],
+                "num_pedestals": [1, 1, 1],
+                "elapsed_time": [1800.0, 1800.0, 1800.0],
+            }
+        ),
+    )
+
+
+class TestSavedSelection:
+    def test_saved_outputs_reload_as_the_same_selection(self, tmp_path, monkeypatch):
+        selection = RunSelection(
+            edges=(0.0, 20.0, 30.0),
+            selected=pd.DataFrame(
+                {"run_number": [1, 2], "date": [20240101, 20240101], "zenith_bin": ["zd_0_20", "zd_20_30"]}
+            ),
+            tables=make_datacheck_tables(),
+            after_basic_cuts=pd.DataFrame(),
+        )
+        monkeypatch.setattr("lst_tools.datacheck.plot_advanced_distributions", lambda *args: {})
+
+        init_lstana.save_datacheck_outputs(selection, MINIMAL_CONFIG, tmp_path / "out" / "data_check")
+
+        loaded = init_lstana.load_saved_selection(MINIMAL_CONFIG, tmp_path / "out")
+
+        assert [run.run_number for run in loaded] == [1, 2]
+        assert [run.zenith_bin for run in loaded] == ["zd_0_20", "zd_20_30"]
+        assert loaded.edges == selection.edges
+        assert loaded.after_basic_cuts is None
+
+    def test_absent_file_loads_nothing(self, tmp_path):
+        assert init_lstana.load_saved_selection(MINIMAL_CONFIG, tmp_path / "out") is None
+
+    def test_refresh_flag_skips_the_saved_selection(self, tmp_path, monkeypatch):
+        path = init_lstana.selection_file(MINIMAL_CONFIG, tmp_path / "out")
+        path.parent.mkdir(parents=True)
+        path.touch()
+        fresh = RunSelection(edges=(0.0, 20.0), selected=pd.DataFrame({"run_number": [], "date": [], "zenith_bin": []}))
+        recomputed = []
+        monkeypatch.setattr(init_lstana, "select_runs", lambda config: recomputed.append(config) or fresh)
+        monkeypatch.setattr(init_lstana, "save_datacheck_outputs", lambda *args: None)
+        monkeypatch.setattr(init_lstana, "make_producers", lambda *args, stage="all": [])
+        monkeypatch.setattr(
+            "sys.argv",
+            ["init_lstana", str(self.write_config(tmp_path)), "-o", str(tmp_path / "out"), "--refresh-selection"],
+        )
+
+        init_lstana.main()
+
+        assert len(recomputed) == 1
+
+    @staticmethod
+    def write_config(tmp_path):
+        config_path = tmp_path / "config.toml"
+        config_path.write_text(
+            textwrap.dedent(
+                """
+                [source]
+                ra = 83.632
+                dec = 22.0145
+                name = "Crab Nebula"
+
+                [zenith_binning]
+                edges_deg = [0.0, 20.0, 30.0]
+
+                [data_filter.cuts]
+                first_date = 20220101
+                last_date = 20221231
+                """
+            )
+        )
+        return config_path
+
+    def test_saved_selection_is_used_by_main(self, tmp_path, monkeypatch, capsys):
+        path = init_lstana.selection_file(MINIMAL_CONFIG, tmp_path / "out")
+        path.parent.mkdir(parents=True)
+        path.touch()
+        monkeypatch.setattr(
+            init_lstana.DataCheckTables,
+            "from_files",
+            lambda files: SimpleNamespace(statistics=make_stats_frame()),
+        )
+        monkeypatch.setattr(
+            init_lstana,
+            "select_runs",
+            lambda config: pytest.fail("an existing selection must not be recomputed"),
+        )
+        monkeypatch.setattr(init_lstana, "make_producers", lambda *args, stage="all": [])
+        monkeypatch.setattr("sys.argv", ["init_lstana", str(self.write_config(tmp_path)), "-o", str(tmp_path / "out")])
+
+        init_lstana.main()
+
+        assert "Loaded the saved run selection" in capsys.readouterr().out
+
+
 class TestBuildProducers:
     def test_producers_are_wired_to_each_others_output_dirs(self, tmp_path):
         pipeline_config = PipelineConfig.parse(
@@ -277,7 +396,9 @@ class TestMain:
         assert produced == []
         assert "Selected 0 runs" in capsys.readouterr().out
 
-    @pytest.mark.parametrize("stage,should_save_datacheck", [("all", True), ("dl1", True), ("dl2", False), ("dl3", False)])
+    @pytest.mark.parametrize(
+        "stage,should_save_datacheck", [("all", True), ("dl1", True), ("dl2", False), ("dl3", False)]
+    )
     def test_stage_flag_controls_datacheck_output(self, tmp_path, monkeypatch, stage, should_save_datacheck):
         config_path = tmp_path / "config.toml"
         config_path.write_text(
@@ -376,5 +497,3 @@ class TestMain:
         assert len(dl3_called) == 0
         stdout = capsys.readouterr().out
         assert "Stopped pipeline after dl2" in stdout
-
-

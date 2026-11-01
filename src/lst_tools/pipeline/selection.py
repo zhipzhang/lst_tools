@@ -43,7 +43,7 @@ class RunSelection:
 
     def __iter__(self) -> Iterator[SelectedRun]:
         """The selected runs as typed records, binned runs only."""
-        binned = self.selected[self.selected["zenith_bin"].map(lambda value: isinstance(value, str))]
+        binned = self.selected[self._is_binned().astype(bool)]
         for record in binned.to_dict(orient="records"):
             yield SelectedRun(
                 run_number=int(record["run_number"]),
@@ -54,8 +54,14 @@ class RunSelection:
     @property
     def unbinned_run_numbers(self) -> list[int]:
         """Runs that passed the cuts but got no zenith bin."""
-        unbinned = self.selected[self.selected["zenith_bin"].map(lambda value: not isinstance(value, str))]
+        unbinned = self.selected[~self._is_binned().astype(bool)]
         return [int(run_number) for run_number in unbinned["run_number"].tolist()]
+
+    def _is_binned(self) -> pd.Series:
+        # ``astype(bool)`` matters for an empty selection: ``map`` then
+        # yields an empty float Series, which pandas would read as column
+        # labels instead of a row mask.
+        return self.selected["zenith_bin"].map(lambda value: isinstance(value, str))
 
     def __repr__(self) -> str:
         return (

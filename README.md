@@ -63,8 +63,8 @@ The stages:
 
 1. **Select runs** — nightly DataCheck statistics filtered by the
    `[data_filter]` cuts (and the `[source]` position), grouped into the
-   `[zenith_binning]` bins. The selected tables and advanced-cut
-   diagnostics are saved under `data_check/`.
+   `[zenith_binning]` bins. The selected runs are saved under `data_check/`
+   and reused by later runs; `--refresh-selection` recomputes them.
 2. **DL1** (`[dl1]`) — the external input; linking is the only supported
    mode today (`dl1/<zd_bin>/`).
 3. **DL2** (`[dl2]`) — either link the official DL2, or build our own by
