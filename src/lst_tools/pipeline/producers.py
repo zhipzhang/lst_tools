@@ -11,6 +11,7 @@ variant rule, its placement rule, its build recipe.
 """
 
 import os
+import shlex
 import warnings
 from abc import ABC
 from collections import Counter
@@ -18,27 +19,18 @@ from collections.abc import Sequence
 from pathlib import Path
 from typing import Any, ClassVar, Literal
 
-from lst_tools.dl1.dl1event import LSTDL1Event, dl1_to_dl2_batch
-from lst_tools.dl2 import LSTDL2EventTable
-from lst_tools.dl3 import DL3Reducer
+from lst_tools.dl1.dl1event import reconstruct_dl1_to_dl2
 from lst_tools.finder import (
-    MC_DL2_PATH,
     DL1LevelSearchResult,
     DL2LevelSearchResult,
     DL3LevelSearchResult,
     find_la_palma_files,
-    find_mc_dl2_files,
 )
 from lst_tools.finder.datalevel_attributes import DL3Attributes, DLAttributes
-from lst_tools.irf import IRFConfig, IRFGenerator, IRFNode, MCNode
 
-from .configs import (
-    NSB_LEVEL_VARIABLE,
-    DL1ProducerConfig,
-    DL2ProducerConfig,
-    DL3ProducerConfig,
-    SourceConfig,
-)
+from .configs import DL1ProducerConfig, DL2ProducerConfig, DL3ProducerConfig, SourceConfig
+from .dl3 import DL2Observation, DL3Build, DL3Reduction
+from .dl3_execution import submit_dl3_build
 from .selection import RunSelection
 from .slurm_config import SlurmConfig
 
@@ -225,25 +217,28 @@ class DL2Producer(DLProducer):
                 continue
 
             batch_idx = 1
-            for model_directory, group in self._group_by_model_directory(rf_template, pending).items():
-                for i in range(0, len(group), runs_per_job):
-                    chunk = group[i : i + runs_per_job]
-                    job_name = f"lst_dl2_{dl1_dir.name}_{batch_idx}"
-                    batch_idx += 1
-                    slurm = Slurm(**{**slurm_kwargs, "job_name": job_name})
-                    slurm.set_shell("/bin/bash")
-                    if slurm_config.env_setup:
-                        slurm.add_cmd(slurm_config.env_setup)
+            for i in range(0, len(pending), runs_per_job):
+                chunk = pending[i : i + runs_per_job]
+                job_name = f"lst_dl2_{dl1_dir.name}_{batch_idx}"
+                batch_idx += 1
+                slurm = Slurm(**{**slurm_kwargs, "job_name": job_name})
+                slurm.set_shell("/bin/bash")
+                if slurm_config.env_setup:
+                    slurm.add_cmd(slurm_config.env_setup)
 
-                    files_arg = " ".join(f'"{f}"' for f in chunk)
-                    cmd = f'{self.worker_command} --input {files_arg} --output-dir "{output_dir}" --model-dir "{model_directory}"'
-                    if overwrite:
-                        cmd += " --overwrite"
-                    slurm.add_cmd(cmd)
+                files_arg = " ".join(shlex.quote(str(file)) for file in chunk)
+                cmd = (
+                    f"{self.worker_command} --input {files_arg} "
+                    f"--output-dir {shlex.quote(str(output_dir))} "
+                    f"--model-dir {shlex.quote(rf_template)}"
+                )
+                if overwrite:
+                    cmd += " --overwrite"
+                slurm.add_cmd(cmd)
 
-                    slurm.sbatch()
-                    counts["dl2:slurm_jobs"] += 1
-                    counts["dl2:slurm_runs"] += len(chunk)
+                slurm.sbatch()
+                counts["dl2:slurm_jobs"] += 1
+                counts["dl2:slurm_runs"] += len(chunk)
 
         return counts
 
@@ -283,65 +278,20 @@ class DL2Producer(DLProducer):
             if not pending:
                 continue
 
-            for model_directory, group in self._group_by_model_directory(rf_template, pending).items():
-                dl1_to_dl2_batch(group, output_dir, model_directory, overwrite=overwrite)
-                for dl1_file in group:
-                    if (output_dir / dl1_file.name.replace("dl1", "dl2", 1)).exists():
-                        counts["dl2:built"] += 1
-                    else:
-                        warnings.warn(f"DL1ToDL2Tool did not create the DL2 file for {dl1_file}", stacklevel=2)
-                        counts["dl2:failed"] += 1
+            reconstruct_dl1_to_dl2(pending, output_dir, rf_template, overwrite=overwrite)
+            for dl1_file in pending:
+                if (output_dir / dl1_file.name.replace("dl1", "dl2", 1)).exists():
+                    counts["dl2:built"] += 1
+                else:
+                    warnings.warn(f"DL1ToDL2Tool did not create the DL2 file for {dl1_file}", stacklevel=2)
+                    counts["dl2:failed"] += 1
 
         return counts
-
-    @staticmethod
-    def _group_by_model_directory(rf_template: str, dl1_files: list[Path]) -> dict[Path, list[Path]]:
-        """Group DL1 files by their resolved RF model directory."""
-        if NSB_LEVEL_VARIABLE not in rf_template:
-            return {Path(rf_template): dl1_files}
-
-        groups: dict[Path, list[Path]] = {}
-        for dl1_file in dl1_files:
-            nsb_level = LSTDL1Event(str(dl1_file)).nsb_level
-            model_directory = Path(rf_template.replace(NSB_LEVEL_VARIABLE, f"{nsb_level:.2f}"))
-            groups.setdefault(model_directory, []).append(dl1_file)
-        return groups
-
-
-def _mc_campaign_directory(directory_template: str, nsb_level: float) -> Path:
-    directory = Path(directory_template.replace(NSB_LEVEL_VARIABLE, f"{nsb_level:.2f}")).expanduser()
-    return directory if directory.is_absolute() else MC_DL2_PATH / directory
-
-
-def _mc_nodes_for_observation(
-    dl2_table: LSTDL2EventTable,
-    directory_template: str,
-    irf_type: Literal["full-enclosure", "point"],
-) -> list[MCNode]:
-    """The MC nodes of one real DL2 file's provenance (its MC group)."""
-    if dl2_table.nsb_level is None:
-        raise ValueError("DL2 table does not contain an NSB level")
-    if dl2_table.dec_line is None:
-        raise ValueError("DL2 table does not contain a declination line")
-
-    campaign = _mc_campaign_directory(directory_template, dl2_table.nsb_level)
-    mc_type = "Gamma" if irf_type == "point" else "GammaDiffuse"
-    return [
-        MCNode(
-            nsb_level=attribute.nsb,
-            dec_line=attribute.dec,
-            zenith=attribute.theta,
-            azimuth=attribute.azimuth,
-            dl2_path=attribute.path,
-            irf_type=irf_type,
-        )
-        for attribute in find_mc_dl2_files(campaign)
-        if attribute.dec == dl2_table.dec_line and attribute.mc_type == mc_type
-    ]
 
 
 class DL3Producer(DLProducer):
     level: ClassVar[Level] = "dl3"
+    worker_command: ClassVar[str] = "lst-dl3-build"
     config: DL3ProducerConfig
 
     def __init__(
@@ -350,8 +300,9 @@ class DL3Producer(DLProducer):
         output_root: Path,
         source: SourceConfig | None = None,
         dl2_directory: str | Path | None = None,
+        slurm_config: SlurmConfig | None = None,
     ):
-        super().__init__(config, output_root)
+        super().__init__(config, output_root, slurm_config=slurm_config)
         self.source = source
         self.dl2_directory = Path(dl2_directory) if dl2_directory is not None else output_root / "dl2"
 
@@ -376,66 +327,27 @@ class DL3Producer(DLProducer):
         return Path(zenith_bin) / attrs.irf_type / attrs.mc_data_type / cut_label / attrs.path.name
 
     def build(self, selection: RunSelection) -> Counter:
-        """IRFs from each DL2 file's MC provenance, then reduce our DL2 to DL3.
+        return self.prepare_build(selection).run()
 
-        Two stages run together: one IRF per MC node of each DL2 file's
-        MC group (NSB tuning + declination line, read back from the DL2
-        provenance), then the DL2 files are reduced per zenith bin against
-        the IRF interpolation sets of their own MC group.
-        """
-        build_options = self.config.build
-        if build_options is None or build_options.event_filter is None:  # pragma: no cover - guarded by config parsing
-            raise ValueError("dl3: building requires [dl3.build] (the shared event selection)")
+    def slurm_build(self, selection: RunSelection, slurm_config: SlurmConfig) -> Counter:
+        return submit_dl3_build(self.prepare_build(selection), self.output_root, slurm_config, self.worker_command)
+
+    def prepare_build(self, selection: RunSelection) -> DL3Build:
+        options = self.config.build
+        if options is None or not options.reductions:
+            raise ValueError("dl3: building requires at least one [[dl3.build.reduction]] table")
         if self.source is None:
             raise ValueError("dl3: building requires the analysis source (SourceConfig with name, ra, dec)")
-
-        counts: Counter = Counter()
-        if not self.dl2_directory.is_dir():
-            warnings.warn(f"dl3: no DL2 directory at {self.dl2_directory}; skipping", stacklevel=2)
-            return counts
-
-        irf_config = IRFConfig(build_options.event_filter, point_like=build_options.point_like)
-        event_filter = irf_config.event_filter
-        generator = IRFGenerator(
-            build_options.irf_directory or self.output_root / "irfs",
-            irf_config,
-        )
-
-        # One IRF per MC node, deduplicated across DL2 files of the same group.
-        nodes: dict[Path, IRFNode] = {}
-        for dl2_file in sorted(self.dl2_directory.glob("*/*.h5")):
-            table = LSTDL2EventTable(dl2_file)
-            mc_nodes = _mc_nodes_for_observation(
-                table,
-                build_options.mc_dl2_directory,
-                irf_config.irf_type,
+        observations = DL2Observation.from_selection(selection, self.dl2_directory)
+        reductions = tuple(
+            DL3Reduction.from_options(
+                reduction=reduction,
+                options=options,
+                source=self.source,
+                observations=observations,
+                irfs_root=options.irf_directory or self.output_root / "irfs",
+                output_dir=self.output_dir,
             )
-            for mc_node in mc_nodes:
-                node = IRFNode.from_mc_node(mc_node, gh_type=event_filter.gh_type, gh_value=event_filter.gh_value)
-                nodes.setdefault(node.relative_path, node)
-        for node in nodes.values():
-            generator.make_irf_node(node)
-        counts["dl3:irf_nodes"] = len(nodes)
-
-        reducer = DL3Reducer(
-            irfs_root=generator.base_path,
-            source_name=self.source.name,
-            source_ra=self.source.ra,
-            source_dec=self.source.dec,
-            irf_config=irf_config,
-            interp_method=build_options.interp_method,
-            use_nearest_irf_node=build_options.use_nearest_irf_node,
-            overwrite=build_options.overwrite,
+            for reduction in options.reductions
         )
-        for dl2_dir in sorted(self.dl2_directory.iterdir()):
-            if not dl2_dir.is_dir():
-                continue
-            dl2_files = sorted(dl2_dir.glob("dl2_*.h5"))
-            if not dl2_files:
-                counts["dl3:no_dl2"] += 1
-                continue
-            reduced = reducer.reduce(dl2_files, self.output_dir / dl2_dir.name)
-            counts["dl3:reduced"] += len(reduced)
-            counts["dl3:failed"] += len(dl2_files) - len(reduced)
-
-        return counts
+        return DL3Build(observations, reductions, options.mc_dl2_directory)

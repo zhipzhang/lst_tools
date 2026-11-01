@@ -6,7 +6,7 @@ Intended as both a standalone CLI tool and a worker entrypoint for SLURM batch j
 import argparse
 from pathlib import Path
 
-from lst_tools.dl1.dl1event import dl1_to_dl2_batch
+from lst_tools.dl1.dl1event import reconstruct_dl1_to_dl2
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -39,7 +39,7 @@ def build_parser() -> argparse.ArgumentParser:
         dest="model_dir",
         type=Path,
         required=True,
-        help="Directory containing the Random Forest models for reconstruction",
+        help="RF model directory or template containing $NSB_LEVEL",
     )
     parser.add_argument(
         "--overwrite",
@@ -54,21 +54,15 @@ def main(argv: list[str] | None = None) -> None:
     parser = build_parser()
     args = parser.parse_args(argv)
 
-    if not args.model_dir.is_dir():
-        parser.error(f"Model directory does not exist or is not a directory: {args.model_dir}")
-
-    missing_files = [f for f in args.input_files if not f.is_file()]
-    if missing_files:
-        parser.error(f"The following input files do not exist: {missing_files}")
-
-    args.output_dir.mkdir(parents=True, exist_ok=True)
-
-    dl1_to_dl2_batch(
-        files=args.input_files,
-        out_root=args.output_dir,
-        model_directory=args.model_dir,
-        overwrite=args.overwrite,
-    )
+    try:
+        reconstruct_dl1_to_dl2(
+            files=args.input_files,
+            out_root=args.output_dir,
+            model_directory_template=args.model_dir,
+            overwrite=args.overwrite,
+        )
+    except FileNotFoundError as error:
+        parser.error(str(error))
     print(f"Reconstructed {len(args.input_files)} DL1 file(s) into {args.output_dir}")
 
 

@@ -83,14 +83,29 @@ paths resolve below `/fefs/aswg/data/mc/DL2/AllSky`; absolute paths are also
 accepted. `point_like = true` selects `Gamma` MC and point-like IRFs, while
 the default `false` selects `GammaDiffuse` and full-enclosure IRFs.
 
-The event selection for built DL3 comes from `[dl3.build]`: the
-quality filters (`intensity_cut`, `leakage_cut`) are passed to the
-reduction and the gammaness cut (`gh_cut` or `gh_efficiency`) is carried
-inside the IRFs, so data and IRFs always agree. Generated IRFs are stored
-under `irfs/nsb_<nsb>/dec_<line>/<irf_type>/<cut_label>/`, with `<irf_type>`
-explicitly set to `point` or `full-enclosure` and `<cut_label>` naming the
-gammaness selection (`gheff0.7` for an efficiency, `ghcut0.7` for a fixed
-cut), so IRFs built with different cuts do not overwrite each other.
+Each `[[dl3.build.reduction]]` table defines one named DL3 selection. Its
+quality filters (`intensity_cut`, `leakage_cut`) are passed to the reduction
+and its gammaness cut (`gh_cut` or `gh_efficiency`) is carried inside the
+IRFs, so data and IRFs always agree. Shared interpolation and MC options stay
+under `[dl3.build]`. Generated DL3 files are stored under
+`dl3/<reduction_name>/<zd_bin>/`, and IRFs under
+`irfs/<reduction_name>/nsb_<nsb>/dec_<line>/<irf_type>/<cut_label>/`.
+The unique reduction name keeps products separate even when only their
+quality cuts differ; `<irf_type>` is `point` or `full-enclosure`, and
+`<cut_label>` names the gammaness selection (`gheff0.7` or `ghcut0.7`).
+
+DL3 builds follow `RunSelection`: each selected, binned run must have exactly
+one DL2 file under its assigned `dl2/<zd_bin>/` directory. Missing inputs
+stop the build with a list of runs and directories; ambiguous matches are
+rejected. Unselected files are ignored, and unbinned runs are skipped with
+a warning. The same selected inputs are saved with a SLURM build and checked
+again when its worker starts.
+
+DL3 builds prepare IRF interpolation sets in parallel, then run named
+reductions in parallel after all IRFs are ready. Workers are bounded by the
+local CPU count, or the job's CPU allocation under SLURM. With SLURM enabled,
+the same build runs inside one job; `[slurm.dl3]` sets its CPU, memory, and
+walltime allocation.
 
 Zenith bins include their lower edge and exclude their upper edge; the
 last bin also includes its upper edge. Reruns are incremental: existing

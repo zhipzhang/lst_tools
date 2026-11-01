@@ -1,3 +1,6 @@
+from pathlib import Path
+from types import SimpleNamespace
+
 import pytest
 
 from lst_tools.scripts import dl1_to_dl2
@@ -84,7 +87,7 @@ class TestMain:
             captured["model_directory"] = model_directory
             captured["overwrite"] = overwrite
 
-        monkeypatch.setattr(dl1_to_dl2, "dl1_to_dl2_batch", fake_batch)
+        monkeypatch.setattr("lst_tools.dl1.dl1event.dl1_to_dl2_batch", fake_batch)
 
         dl1_to_dl2.main(
             [
@@ -106,3 +109,39 @@ class TestMain:
 
         stdout = capsys.readouterr().out
         assert "Reconstructed 1 DL1 file(s)" in stdout
+
+    def test_nsb_template_groups_runs_by_resolved_model(self, tmp_path, monkeypatch):
+        dl1_files = [tmp_path / f"dl1_000{run}.h5" for run in (1, 2, 3)]
+        for dl1_file in dl1_files:
+            dl1_file.touch()
+        model_template = tmp_path / "models" / "nsb_$NSB_LEVEL"
+        model_directories = [tmp_path / "models" / "nsb_0.22", tmp_path / "models" / "nsb_0.38"]
+        for model_directory in model_directories:
+            model_directory.mkdir(parents=True)
+        nsb_by_file = dict(zip(dl1_files, (0.22, 0.38, 0.22), strict=True))
+        calls = []
+
+        def fake_batch(files, out_root, model_directory, overwrite=False):
+            calls.append((list(files), Path(out_root), Path(model_directory), overwrite))
+
+        monkeypatch.setattr("lst_tools.dl1.dl1event.dl1_to_dl2_batch", fake_batch)
+        monkeypatch.setattr(
+            "lst_tools.dl1.dl1event.LSTDL1Event",
+            lambda path: SimpleNamespace(nsb_level=nsb_by_file[Path(path)]),
+        )
+
+        dl1_to_dl2.main(
+            [
+                "--input",
+                *(str(file) for file in dl1_files),
+                "--output-dir",
+                str(tmp_path / "out"),
+                "--model-dir",
+                str(model_template),
+            ]
+        )
+
+        assert calls == [
+            ([dl1_files[0], dl1_files[2]], tmp_path / "out", model_directories[0], False),
+            ([dl1_files[1]], tmp_path / "out", model_directories[1], False),
+        ]

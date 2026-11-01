@@ -67,6 +67,19 @@ def test_make_irf_node_writes_irf_config_and_log_alongside(tmp_path, node, run_i
     assert "--overwrite" in command
 
 
+def test_make_irf_nodes_generates_all_requested_nodes(tmp_path, node, run_irf):
+    nodes = [node, replace(node, zenith=20)]
+
+    irf_files = IRFGenerator(tmp_path / "irfs", fixed_config()).make_irf_nodes(nodes)
+
+    assert [path.name for path in irf_files] == [
+        "theta_10_az_20.irf.fits.gz",
+        "theta_20_az_20.irf.fits.gz",
+    ]
+    assert all(path.is_file() for path in irf_files)
+    assert len(run_irf) == 2
+
+
 def test_existing_irf_is_reused_when_the_config_is_unchanged(tmp_path, node, run_irf):
     generator = IRFGenerator(tmp_path / "irfs", fixed_config())
 

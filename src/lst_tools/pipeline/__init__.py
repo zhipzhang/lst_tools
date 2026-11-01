@@ -14,12 +14,13 @@ from .configs import (
     DL3BuildOptions,
     DL3LinkOptions,
     DL3ProducerConfig,
+    DL3ReductionOptions,
     PipelineConfig,
     SourceConfig,
 )
 from .producers import DL1Producer, DL2Producer, DL3Producer, DLProducer, create_safe_link
 from .selection import RunSelection, SelectedRun
-from .slurm_config import SlurmConfig, SlurmDL2Config
+from .slurm_config import SlurmConfig, SlurmDL2Config, SlurmDL3Config
 
 __all__ = [
     "DL1BuildOptions",
@@ -34,12 +35,14 @@ __all__ = [
     "DL3LinkOptions",
     "DL3Producer",
     "DL3ProducerConfig",
+    "DL3ReductionOptions",
     "DLProducer",
     "PipelineConfig",
     "RunSelection",
     "SelectedRun",
     "SlurmConfig",
     "SlurmDL2Config",
+    "SlurmDL3Config",
     "SourceConfig",
     "create_safe_link",
 ]
