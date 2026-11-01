@@ -30,7 +30,7 @@ from lst_tools.finder import (
     find_mc_dl2_files,
 )
 from lst_tools.finder.datalevel_attributes import DL3Attributes, DLAttributes
-from lst_tools.irf import IRFConfig, IRFGenerator, IRFNode
+from lst_tools.irf import IRFConfig, IRFGenerator, IRFNode, MCNode
 
 from .configs import (
     NSB_LEVEL_VARIABLE,
@@ -313,11 +313,12 @@ def _mc_campaign_directory(directory_template: str, nsb_level: float) -> Path:
     return directory if directory.is_absolute() else MC_DL2_PATH / directory
 
 
-def _irf_nodes_for_observation(
+def _mc_nodes_for_observation(
     dl2_table: LSTDL2EventTable,
     directory_template: str,
     irf_type: Literal["full-enclosure", "point"],
-) -> list[IRFNode]:
+) -> list[MCNode]:
+    """The MC nodes of one real DL2 file's provenance (its MC group)."""
     if dl2_table.nsb_level is None:
         raise ValueError("DL2 table does not contain an NSB level")
     if dl2_table.dec_line is None:
@@ -326,7 +327,7 @@ def _irf_nodes_for_observation(
     campaign = _mc_campaign_directory(directory_template, dl2_table.nsb_level)
     mc_type = "Gamma" if irf_type == "point" else "GammaDiffuse"
     return [
-        IRFNode(
+        MCNode(
             nsb_level=attribute.nsb,
             dec_line=attribute.dec,
             zenith=attribute.theta,
@@ -394,6 +395,7 @@ class DL3Producer(DLProducer):
             return counts
 
         irf_config = IRFConfig(build_options.event_filter, point_like=build_options.point_like)
+        event_filter = irf_config.event_filter
         generator = IRFGenerator(
             build_options.irf_directory or self.output_root / "irfs",
             irf_config,
@@ -403,12 +405,13 @@ class DL3Producer(DLProducer):
         nodes: dict[Path, IRFNode] = {}
         for dl2_file in sorted(self.dl2_directory.glob("*/*.h5")):
             table = LSTDL2EventTable(dl2_file)
-            irf_nodes = _irf_nodes_for_observation(
+            mc_nodes = _mc_nodes_for_observation(
                 table,
                 build_options.mc_dl2_directory,
                 irf_config.irf_type,
             )
-            for node in irf_nodes:
+            for mc_node in mc_nodes:
+                node = IRFNode.from_mc_node(mc_node, gh_type=event_filter.gh_type, gh_value=event_filter.gh_value)
                 nodes.setdefault(node.relative_path, node)
         for node in nodes.values():
             generator.make_irf_node(node)

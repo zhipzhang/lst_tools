@@ -10,12 +10,13 @@ from lstchain.tools.lstchain_create_dl3_file import DataReductionFITSWriter
 from traitlets.config import Config
 
 from lst_tools.dl2 import LSTDL2EventTable
-from lst_tools.irf import IRFConfig
+from lst_tools.irf import IRFConfig, irf_group_path
 
 __all__ = ["DL3Reducer"]
 
 # The interpolation set of one MC group: all pointings of one
-# nsb_<x>/dec_<y>/<irf_type>/ directory, as written by IRFGenerator.
+# nsb_<x>/dec_<y>/<irf_type>/<cut_label>/ directory, as written by
+# IRFGenerator.
 IRF_FILE_PATTERN = "theta_*_az_*.irf.fits.gz"
 
 
@@ -24,10 +25,9 @@ class DL3Reducer:
 
     Every DL2 file is reduced against the IRF interpolation set of its own
     MC group (NSB tuning and declination line, read from the DL2
-    provenance): ``irfs_root / nsb_<nsb> / dec_<line> / <irf_type>``. The
-    gammaness cut
-    rides inside the IRF; the quality filters come from the same
-    ``IRFConfig`` that generated it.
+    provenance): ``irfs_root / nsb_<nsb> / dec_<line> / <irf_type> /
+    <cut_label>``. The gammaness cut rides inside the IRF; the quality
+    filters come from the same ``IRFConfig`` that generated it.
 
     The reducer knows nothing about zenith binning: the caller chooses the
     output directory.
@@ -106,14 +106,19 @@ class DL3Reducer:
     def _irf_set_dir(self, dl2_file: Path) -> Path:
         """The IRF interpolation set of the MC group matching the DL2 provenance.
 
-        Same naming contract as ``IRFNode.relative_path``
-        (``nsb_<nsb>/dec_<line>/<irf_type>``).
+        Built from ``irf_group_path``, the same function behind
+        ``IRFNode.relative_path``, so the reduction reads exactly the IRFs
+        generated for its own gammaness selection.
         """
         table = LSTDL2EventTable(dl2_file)
         if table.nsb_level is None or table.dec_line is None:
             raise ValueError(f"Could not derive the MC group (NSB tuning, declination line) from {dl2_file}")
-        dec_name = f"dec_min_{abs(table.dec_line)}" if table.dec_line < 0 else f"dec_{table.dec_line}"
-        irf_dir = self.irfs_root / f"nsb_{table.nsb_level:g}" / dec_name / self.irf_config.irf_type
+        irf_dir = self.irfs_root / irf_group_path(
+            nsb_level=table.nsb_level,
+            dec_line=table.dec_line,
+            irf_type=self.irf_config.irf_type,
+            cut_label=self.irf_config.event_filter.cut_label,
+        )
         if not irf_dir.is_dir():
             raise FileNotFoundError(f"No IRF set for {dl2_file}: {irf_dir} does not exist")
         return irf_dir

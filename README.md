@@ -87,8 +87,10 @@ The event selection for built DL3 comes from `[dl3.build]`: the
 quality filters (`intensity_cut`, `leakage_cut`) are passed to the
 reduction and the gammaness cut (`gh_cut` or `gh_efficiency`) is carried
 inside the IRFs, so data and IRFs always agree. Generated IRFs are stored
-under `irfs/nsb_<nsb>/dec_<line>/<irf_type>/`, with `<irf_type>` explicitly
-set to `point` or `full-enclosure`.
+under `irfs/nsb_<nsb>/dec_<line>/<irf_type>/<cut_label>/`, with `<irf_type>`
+explicitly set to `point` or `full-enclosure` and `<cut_label>` naming the
+gammaness selection (`gheff0.7` for an efficiency, `ghcut0.7` for a fixed
+cut), so IRFs built with different cuts do not overwrite each other.
 
 Zenith bins include their lower edge and exclude their upper edge; the
 last bin also includes its upper edge. Reruns are incremental: existing

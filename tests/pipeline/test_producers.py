@@ -555,6 +555,21 @@ class TestDL3Producer:
         campaign = MC_DL2_PATH / "20250212_v0.10.17_allsky_interp_dl2_irfs_nsb_0.38"
         assert campaigns == [campaign, campaign]
 
+    def test_build_passes_its_gammaness_selection_to_the_irf_nodes(self, tmp_path, monkeypatch):
+        self._make_dl2_tree(tmp_path, 10623)
+        made_nodes, _, _, _ = self._fake_irf_and_reduction(monkeypatch)
+        producer = DL3Producer(
+            self._build_config(),
+            tmp_path / "out",
+            source=SourceConfig(name="Crab", ra=83.6, dec=22.0),
+        )
+
+        producer.produce(make_selection([RUN_10623]))
+
+        assert made_nodes[0].gh_type == "cut"
+        assert made_nodes[0].gh_value == pytest.approx(0.7)
+        assert made_nodes[0].cut_label == "ghcut0.7"
+
     def test_build_uses_configured_irf_directory(self, tmp_path, monkeypatch):
         self._make_dl2_tree(tmp_path, 10623)
         _, reductions, generator_bases, _ = self._fake_irf_and_reduction(monkeypatch)

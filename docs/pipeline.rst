@@ -61,13 +61,16 @@ Workspace layout
    ├── dl1/<zd_bin>/     # linked input (stage 2)
    ├── dl2/<zd_bin>/     # linked or built (stage 3)
    ├── irfs/             # built during the DL3 build
-   │   └── nsb_<nsb>/dec_<line>/<irf_type>/
+   │   └── nsb_<nsb>/dec_<line>/<irf_type>/<cut_label>/
    │       └── theta_<zenith>_az_<azimuth>.irf.fits.gz
    └── dl3/<zd_bin>/     # linked or built (stage 4)
 
-Here ``<irf_type>`` is explicitly ``point`` or ``full-enclosure``. The DL3
-reduction reads the same type-specific directory, so the two kinds of IRFs
-cannot overwrite each other or be mixed in one interpolation set.
+Here ``<irf_type>`` is explicitly ``point`` or ``full-enclosure``, and
+``<cut_label>`` names the gammaness selection, ``gheff0.7`` for an
+energy-dependent efficiency or ``ghcut0.7`` for a fixed cut. The DL3
+reduction reads the directory matching its own configuration, so IRFs that
+differ in type or in gammaness cuts neither overwrite each other nor get
+mixed into one interpolation set.
 
 Zenith bins include their lower edge and exclude their upper edge; the last
 bin also includes its upper edge. Reruns are incremental: existing links are

@@ -1,8 +1,24 @@
 """Utilities for selecting events."""
 
+from typing import Literal
+
 import numpy as np
 import pandas as pd
 from lstchain.io.event_selection import DataBinning, DL3Cuts, EventSelector
+
+GHType = Literal["efficiency", "cut"]
+
+
+def gammaness_label(gh_type: GHType, gh_value: float) -> str:
+    """Path-safe name of a gammaness selection, e.g. ``gheff0.7``.
+
+    The single source of that label: IRF generation names its output
+    directory with it and DL3 reduction looks the directory up with it, so
+    both always address the same IRF set.
+    """
+    prefix = "gheff" if gh_type == "efficiency" else "ghcut"
+    return f"{prefix}{gh_value:g}"
+
 
 # DL3Cuts values that differ from lstchain defaults, matching
 # irf/default_config.json.
@@ -54,6 +70,27 @@ class EventFilter:
         if energy_bins is None:
             energy_bins = DataBinning().reco_energy_bins().to_value("TeV")
         self.energy_bins = np.asarray(energy_bins, dtype=float)
+
+    @property
+    def gh_type(self) -> GHType:
+        """Which gammaness mode this filter uses: ``efficiency`` or ``cut``."""
+        return "efficiency" if self.energy_dependent_gh else "cut"
+
+    @property
+    def gh_value(self) -> float:
+        """The gammaness efficiency, or the fixed cut, matching :attr:`gh_type`."""
+        if self.energy_dependent_gh:
+            return float(self.dl3_cuts.gh_efficiency)
+        return float(self.dl3_cuts.global_gh_cut)
+
+    @property
+    def cut_label(self) -> str:
+        """Path-safe name of the gammaness selection, e.g. ``gheff0.7``.
+
+        Shared vocabulary with the DL3 products on the La Palma server, so
+        generated and linked products can be read by one parser.
+        """
+        return gammaness_label(self.gh_type, self.gh_value)
 
     @classmethod
     def from_cuts(
