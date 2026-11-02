@@ -40,7 +40,12 @@ class DL1LevelSearchResult(DataLevelSearchResult):
 class DL2LevelSearchResult(DataLevelSearchResult):
     def __init__(self, files: list[str]):
         super().__init__(files)
-        self.dl2_files = [parse_dl2_path(f) for f in self.files]
+        self.dl2_files = []
+        for file in self.files:
+            try:
+                self.dl2_files.append(parse_dl2_path(file))
+            except ValueError as error:
+                print(f"Error parsing DL2 file {file}: {error}")
 
     @property
     def newest_attributes(self) -> DL2Attributes | None:
