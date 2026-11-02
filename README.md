@@ -113,6 +113,24 @@ links are kept, existing files are reused, and conflicting files are
 never replaced (each level has an `overwrite` option for its build mode).
 See the comments in `config/config.toml` for every option.
 
+## Summarizing selected runs: `summarize-lstana`
+
+```bash
+summarize-lstana config/config.toml --output /path/to/analysis
+```
+
+The positional configuration defaults to `config/config.toml`, so it can be
+omitted when using that file. The command uses the same configuration and
+output directory as `init-lstana` to locate the saved datacheck selection and
+the configured DL2/DL3 directories. `--datacheck`, `--dl2-dir`, and `--dl3-dir`
+are available as explicit overrides.
+
+It writes `run_summary.ecsv` in the analysis directory with run number, date,
+`RA_PNT`, `DEC_PNT`, `AZ_PNT`, `ZE_PNT`, `B_DELTA`, live time, event count,
+and the NSB level read from DL2 provenance. Choose one DL3 reduction with
+`--dl3-dir` if several are present. Use `--summary-file run_summary.csv` for
+CSV and `--overwrite` to replace an existing table.
+
 ## Preparing catalog-separated off runs: `prepare-offruns`
 
 ```bash
