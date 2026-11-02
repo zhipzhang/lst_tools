@@ -2,7 +2,6 @@ import math
 import re
 from functools import cached_property
 from os import PathLike
-from pathlib import Path
 
 import astropy.units as u
 from lstchain.reco.utils import get_effective_time, get_intensity_cut
@@ -19,8 +18,22 @@ class LSTDL2EventTable(LSTDL2TableBase):
     def __init__(self, file_name: str | PathLike[str]):
         self.run_id = parse_run_id(str(file_name))
         super().__init__(file_name)
-        self.t_eff, self.t_elapsed = get_effective_time(self.dl2_params)
-        self.pointing = Pointing(
+
+    @cached_property
+    def _timing(self):
+        return get_effective_time(self.dl2_params)
+
+    @property
+    def t_eff(self):
+        return self._timing[0]
+
+    @property
+    def t_elapsed(self):
+        return self._timing[1]
+
+    @cached_property
+    def pointing(self) -> Pointing:
+        return Pointing(
             self.dl2_params["alt_tel"].to_numpy(dtype=float),
             self.dl2_params["az_tel"].to_numpy(dtype=float),
             self.dl2_params["trigger_time"].to_numpy(dtype=float),
