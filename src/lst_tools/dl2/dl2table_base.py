@@ -1,4 +1,5 @@
 import re
+from functools import cached_property
 from os import PathLike
 from typing import cast
 
@@ -12,11 +13,14 @@ class LSTDL2TableBase:
 
     def __init__(self, file_name: str | PathLike[str]):
         self.file_name = str(file_name)
-        self.dl2_params: pd.DataFrame = self.read_dl2_events(self.file_name)
         self.dl2_provenance = read_dl2_provenance(self.file_name)
         self.dl1_file_path: str | None = None
         self.rf_model_directory: str | None = None
         self.analyze_provenance()
+
+    @cached_property
+    def dl2_params(self) -> pd.DataFrame:
+        return self.read_dl2_events(self.file_name)
 
     @staticmethod
     def read_dl2_events(file_name: str) -> pd.DataFrame:

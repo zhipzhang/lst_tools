@@ -22,7 +22,12 @@ class DataLevelSearchResult(ABC):
 class DL1LevelSearchResult(DataLevelSearchResult):
     def __init__(self, files: list[str]):
         super().__init__(files)
-        self.dl1_files = [parse_dl1_path(f) for f in self.files]
+        self.dl1_files = []
+        for file in self.files:
+            try:
+                self.dl1_files.append(parse_dl1_path(file))
+            except ValueError as error:
+                print(f"Error parsing DL1 file {file}: {error}")
 
     @property
     def newest_attributes(self) -> DL1Attributes | None:

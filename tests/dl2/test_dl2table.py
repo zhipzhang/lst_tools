@@ -34,10 +34,12 @@ def patched_dl2_io(monkeypatch):
 
     def read_hdf(filename, key):
         calls["hdf"] = filename, key
+        calls["hdf_count"] = calls.get("hdf_count", 0) + 1
         return events
 
     def get_effective_time(data):
         assert data is events
+        calls["effective_time_count"] = calls.get("effective_time_count", 0) + 1
         return 12.5, 15.0
 
     monkeypatch.setattr(dl2table_base_module.pd, "read_hdf", read_hdf)
@@ -55,10 +57,34 @@ def test_loads_events_and_provenance(patched_dl2_io):
     table = LSTDL2EventTable(filename)
 
     assert table.run_id == 42
+    assert "hdf" not in calls
     assert table.data is events
     assert table.t_eff == pytest.approx(12.5)
     assert table.t_elapsed == pytest.approx(15.0)
     assert calls["hdf"][0] == str(filename)
+
+
+def test_provenance_metadata_does_not_load_events(patched_dl2_io):
+    _, calls = patched_dl2_io
+    table = LSTDL2EventTable("/data/dl2_LST-1.Run00042.h5")
+
+    assert table.nsb_level == pytest.approx(0.22)
+    assert table.dec_line == 3476
+    assert table.tailcut_level == (10, 5)
+    assert "hdf" not in calls
+
+
+def test_event_derived_properties_share_cached_events(patched_dl2_io):
+    events, calls = patched_dl2_io
+    table = LSTDL2EventTable("/data/dl2_LST-1.Run00042.h5")
+
+    assert table.dl2_params is events
+    assert table.data is events
+    assert table.t_eff == pytest.approx(12.5)
+    assert table.t_elapsed == pytest.approx(15.0)
+    assert table.pointing is table.pointing
+    assert calls["hdf_count"] == 1
+    assert calls["effective_time_count"] == 1
 
 
 def test_parses_processing_metadata(patched_dl2_io):
