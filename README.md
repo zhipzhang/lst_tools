@@ -116,20 +116,22 @@ See the comments in `config/config.toml` for every option.
 ## Summarizing selected runs: `summarize-lstana`
 
 ```bash
-summarize-lstana config/config.toml --output /path/to/analysis
+summarize-lstana config/config.toml --analysis-dir /path/to/analysis -o run_summary.ecsv
 ```
 
 The positional configuration defaults to `config/config.toml`, so it can be
-omitted when using that file. The command uses the same configuration and
-output directory as `init-lstana` to locate the saved datacheck selection and
-the configured DL2/DL3 directories. `--datacheck`, `--dl2-dir`, and `--dl3-dir`
-are available as explicit overrides.
+omitted when using that file. `--analysis-dir` (`-a`) specifies the `init-lstana`
+analysis directory (defaulting to the current working directory) to locate the
+saved datacheck selection and the configured DL2/DL3 directories. `--output` (`-o`)
+specifies the output table file (defaulting to `<analysis-dir>/run_summary.ecsv`).
+`--datacheck`, `--dl2-dir`, and `--dl3-dir` are available as explicit overrides.
 
-It writes `run_summary.ecsv` in the analysis directory with run number, date,
+It writes `run_summary.ecsv` (or `.csv` if specified) with run number, date,
 `RA_PNT`, `DEC_PNT`, `AZ_PNT`, `ZE_PNT`, `B_DELTA`, live time, event count,
-and the NSB level read from DL2 provenance. Choose one DL3 reduction with
-`--dl3-dir` if several are present. Use `--summary-file run_summary.csv` for
-CSV and `--overwrite` to replace an existing table.
+and the NSB level read from DL2 provenance. When multiple DL3 reductions are
+present, the first configured reduction is selected by default; a specific reduction
+can be chosen with `-r`/`--reduction` or `--dl3-dir`. Use `--overwrite` to replace
+an existing output table.
 
 ## Preparing catalog-separated off runs: `prepare-offruns`
 

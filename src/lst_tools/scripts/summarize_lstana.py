@@ -18,16 +18,19 @@ COLUMNS = ("run_number", "date", *ANGLE_COLUMNS, "LIVETIME", "N_EVENTS", "NSB_LE
 
 
 def _find_run_file(directory: Path, level: str, run_number: int) -> Path | None:
+    if not directory.is_dir():
+        return None
     matches = sorted(directory.rglob(f"{level}_*Run{run_number:05d}*"))
     matches = [path for path in matches if path.is_file()]
-    if len(matches) > 1:
-        paths = "\n".join(str(path) for path in matches)
-        raise ValueError(f"Multiple {level.upper()} files for run {run_number}; select one product directory:\n{paths}")
     return matches[0] if matches else None
 
 
 def _b_delta_deg(dl3_file: Path) -> float:
-    value = fits.getheader(dl3_file, extname="POINTING").get("B_DELTA")
+    try:
+        header = fits.getheader(dl3_file, extname="POINTING")
+    except (KeyError, IndexError, ValueError, OSError):
+        return float("nan")
+    value = header.get("B_DELTA")
     if value is None:
         return float("nan")
     if isinstance(value, str):
@@ -35,13 +38,25 @@ def _b_delta_deg(dl3_file: Path) -> float:
     return float(value)
 
 
-def summarize_runs(datacheck_file: Path, dl3_dir: Path, dl2_dir: Path | None = None) -> Table:
+def summarize_runs(
+    datacheck_file: Path,
+    dl3_dir: Path,
+    dl2_dir: Path | None = None,
+    *,
+    reduction: str | None = None,
+) -> Table:
     """Read one row per selected run with a DL3 file; NSB comes from DL2 provenance."""
     selected = DataCheckTables.from_files([str(datacheck_file)]).statistics
     rows = []
+    search_dl3_dir = dl3_dir
+    if reduction is not None and (dl3_dir / reduction).is_dir():
+        search_dl3_dir = dl3_dir / reduction
+
     for run in selected.to_dict(orient="records"):
         run_number = int(run["run_number"])
-        dl3_file = _find_run_file(dl3_dir, "dl3", run_number)
+        dl3_file = _find_run_file(search_dl3_dir, "dl3", run_number)
+        if dl3_file is None and search_dl3_dir != dl3_dir:
+            dl3_file = _find_run_file(dl3_dir, "dl3", run_number)
         if dl3_file is None:
             warnings.warn(f"No DL3 file for selected run {run_number}; skipped", stacklevel=2)
             continue
@@ -51,7 +66,15 @@ def summarize_runs(datacheck_file: Path, dl3_dir: Path, dl2_dir: Path | None = N
         if dl2_dir is not None and dl2_dir.is_dir():
             dl2_file = _find_run_file(dl2_dir, "dl2", run_number)
             if dl2_file is not None:
-                nsb_level = LSTDL2EventTable(dl2_file).nsb_level or float("nan")
+                try:
+                    nsb_level = LSTDL2EventTable(dl2_file).nsb_level or float("nan")
+                except (KeyError, ValueError, OSError, AttributeError):
+                    nsb_level = float("nan")
+
+        ze_pnt = metadata.get("ZE_PNT")
+        if ze_pnt is None:
+            alt_pnt = metadata.get("ALT_PNT")
+            ze_pnt = 90.0 - float(alt_pnt) if alt_pnt is not None else float("nan")
 
         rows.append(
             {
@@ -60,7 +83,7 @@ def summarize_runs(datacheck_file: Path, dl3_dir: Path, dl2_dir: Path | None = N
                 "RA_PNT": float(metadata["RA_PNT"]),
                 "DEC_PNT": float(metadata["DEC_PNT"]),
                 "AZ_PNT": float(metadata["AZ_PNT"]),
-                "ZE_PNT": float(metadata.get("ZE_PNT", 90.0 - metadata["ALT_PNT"])),
+                "ZE_PNT": float(ze_pnt),
                 "B_DELTA": _b_delta_deg(dl3_file),
                 "LIVETIME": float(metadata["LIVETIME"]),
                 "N_EVENTS": int(metadata["NAXIS2"]),
@@ -68,7 +91,7 @@ def summarize_runs(datacheck_file: Path, dl3_dir: Path, dl2_dir: Path | None = N
             }
         )
 
-    table = Table(rows=rows, names=COLUMNS)
+    table = Table(rows=rows, names=COLUMNS) if rows else Table(names=COLUMNS)
     for column in ANGLE_COLUMNS:
         table[column].unit = u.deg
     table["LIVETIME"].unit = u.s
@@ -80,16 +103,31 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("config_file", nargs="?", type=Path, default=Path("config/config.toml"), help="Pipeline TOML file")
     parser.add_argument("-c", "--config", dest="config_option", type=Path, help="Pipeline TOML file")
     parser.add_argument(
-        "-o",
-        "--output",
+        "-a",
+        "--analysis-dir",
+        "--analysis-directory",
+        dest="analysis_dir",
         type=Path,
         default=Path.cwd(),
-        help="init-lstana analysis output directory",
+        help="init-lstana analysis directory",
+    )
+    parser.add_argument(
+        "-o",
+        "--output",
+        "--summary-file",
+        dest="output",
+        type=Path,
+        help="Output summary table file (.ecsv or .csv; default: <analysis_dir>/run_summary.ecsv)",
+    )
+    parser.add_argument(
+        "-r",
+        "--reduction",
+        type=str,
+        help="DL3 reduction name to summarize (default: first configured reduction)",
     )
     parser.add_argument("--datacheck", type=Path, help="Override the configured datacheck selection file")
     parser.add_argument("--dl3-dir", type=Path, help="Override the configured DL3 directory")
     parser.add_argument("--dl2-dir", type=Path, help="Override the configured DL2 directory")
-    parser.add_argument("--summary-file", type=Path, help="Output .ecsv or .csv table")
     parser.add_argument("--overwrite", action="store_true", help="Overwrite the output table")
     return parser
 
@@ -99,15 +137,41 @@ def main(argv: list[str] | None = None) -> None:
     config_file = args.config_option or args.config_file
     raw_config = load_config(config_file)
     pipeline_config = PipelineConfig.parse(raw_config)
-    analysis_dir = args.output.expanduser().resolve()
+    analysis_dir = args.analysis_dir.expanduser().resolve()
     _, dl2, dl3 = make_producers(pipeline_config, raw_config, analysis_dir)
 
     datacheck_file = args.datacheck or selection_file(raw_config, analysis_dir)
-    dl3_dir = args.dl3_dir or dl3.output_dir
-    dl2_dir = args.dl2_dir or dl2.output_dir
-    summary_file = args.summary_file or analysis_dir / "run_summary.ecsv"
 
-    table = summarize_runs(datacheck_file, dl3_dir, dl2_dir)
+    if args.dl3_dir is not None:
+        dl3_dir = args.dl3_dir.expanduser().resolve()
+    elif args.reduction is not None:
+        dl3_dir = (dl3.output_dir / args.reduction).resolve()
+        if not dl3_dir.is_dir():
+            raise FileNotFoundError(f"DL3 reduction directory not found: {dl3_dir}")
+    elif (
+        pipeline_config.dl3.enabled
+        and pipeline_config.dl3.build is not None
+        and pipeline_config.dl3.build.reductions
+    ):
+        first_reduction = pipeline_config.dl3.build.reductions[0].name
+        first_reduction_dir = dl3.output_dir / first_reduction
+        if first_reduction_dir.is_dir():
+            dl3_dir = first_reduction_dir.resolve()
+        else:
+            dl3_dir = dl3.output_dir.resolve()
+    else:
+        dl3_dir = dl3.output_dir.resolve()
+
+    dl2_dir = args.dl2_dir.expanduser().resolve() if args.dl2_dir else dl2.output_dir.resolve()
+
+    if args.output is not None:
+        summary_file = args.output.expanduser().resolve()
+        if summary_file.is_dir():
+            summary_file = summary_file / "run_summary.ecsv"
+    else:
+        summary_file = analysis_dir / "run_summary.ecsv"
+
+    table = summarize_runs(datacheck_file, dl3_dir, dl2_dir, reduction=args.reduction)
     summary_file.parent.mkdir(parents=True, exist_ok=True)
     output_format = "ascii.csv" if summary_file.suffix.lower() == ".csv" else "ascii.ecsv"
     table.write(summary_file, format=output_format, overwrite=args.overwrite)

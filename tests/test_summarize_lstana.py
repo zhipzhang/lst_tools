@@ -56,7 +56,7 @@ def test_summarize_selected_run(tmp_path, monkeypatch):
     assert table["LIVETIME"].unit == u.s
 
 
-def test_rejects_multiple_dl3_products_for_one_run(tmp_path, monkeypatch):
+def test_multiple_dl3_reductions_uses_first(tmp_path, monkeypatch):
     _patch_readers(monkeypatch)
     dl3_dir = tmp_path / "dl3"
     for reduction in ("standard", "hard"):
@@ -64,8 +64,9 @@ def test_rejects_multiple_dl3_products_for_one_run(tmp_path, monkeypatch):
         directory.mkdir(parents=True)
         (directory / "dl3_LST-1.Run13647.fits").touch()
 
-    with pytest.raises(ValueError, match="Multiple DL3 files"):
-        summarize_lstana.summarize_runs(tmp_path / "selection.h5", dl3_dir)
+    table = summarize_lstana.summarize_runs(tmp_path / "selection.h5", dl3_dir)
+    assert len(table) == 1
+    assert table[0]["run_number"] == 13647
 
 
 def test_main_reads_paths_from_pipeline_config(tmp_path, monkeypatch, capsys):
@@ -95,14 +96,14 @@ def test_main_reads_paths_from_pipeline_config(tmp_path, monkeypatch, capsys):
     )
     calls = {}
 
-    def fake_summarize(datacheck, dl3_dir, dl2_dir):
+    def fake_summarize(datacheck, dl3_dir, dl2_dir, **kwargs):
         calls.update(datacheck=datacheck, dl3_dir=dl3_dir, dl2_dir=dl2_dir)
         return Table({"run_number": [13647]})
 
     monkeypatch.setattr(summarize_lstana, "summarize_runs", fake_summarize)
     summary_file = analysis_dir / "summary.csv"
 
-    summarize_lstana.main([str(config_file), "-o", str(analysis_dir), "--summary-file", str(summary_file)])
+    summarize_lstana.main([str(config_file), "-a", str(analysis_dir), "-o", str(summary_file)])
 
     assert calls == {
         "datacheck": analysis_dir / "data_check" / "data_check_Test_Source_ra_83.632_dec_22.0145.h5",
@@ -111,6 +112,82 @@ def test_main_reads_paths_from_pipeline_config(tmp_path, monkeypatch, capsys):
     }
     assert summary_file.read_text().splitlines() == ["run_number", "13647"]
     assert "Wrote 1 runs" in capsys.readouterr().out
+
+
+def test_main_uses_first_reduction_when_multiple(tmp_path, monkeypatch):
+    analysis_dir = tmp_path / "analysis"
+    config_file = tmp_path / "config.toml"
+    config_file.write_text(
+        """
+        [source]
+        name = "Test Source"
+        ra = 83.632
+        dec = 22.0145
+
+        [zenith_binning]
+        edges_deg = [0.0, 20.0, 30.0]
+
+        [dl3]
+        enabled = true
+        source = "build"
+
+        [dl3.build]
+        mc_dl2_directory = "dummy"
+
+        [[dl3.build.reduction]]
+        name = "standard"
+        intensity_cut = 80
+        leakage_cut = 1.0
+        gh_efficiency = 0.7
+
+        [[dl3.build.reduction]]
+        name = "hard"
+        intensity_cut = 150
+        leakage_cut = 1.0
+        gh_efficiency = 0.5
+        """
+    )
+    standard_dir = analysis_dir / "dl3" / "standard"
+    hard_dir = analysis_dir / "dl3" / "hard"
+    standard_dir.mkdir(parents=True)
+    hard_dir.mkdir(parents=True)
+
+    calls = {}
+
+    def fake_summarize(datacheck, dl3_dir, dl2_dir, **kwargs):
+        calls.update(datacheck=datacheck, dl3_dir=dl3_dir, dl2_dir=dl2_dir, reduction=kwargs.get("reduction"))
+        return Table({"run_number": [13647]})
+
+    monkeypatch.setattr(summarize_lstana, "summarize_runs", fake_summarize)
+
+    # By default, uses first reduction ("standard")
+    summarize_lstana.main([str(config_file), "-a", str(analysis_dir)])
+    assert calls["dl3_dir"] == standard_dir
+    default_summary = analysis_dir / "run_summary.ecsv"
+    assert default_summary.exists()
+
+    # With -r / --reduction hard, uses "hard"
+    summarize_lstana.main([str(config_file), "-a", str(analysis_dir), "-r", "hard", "--overwrite"])
+    assert calls["dl3_dir"] == hard_dir
+
+
+def test_main_output_directory_creates_default_filename(tmp_path, monkeypatch):
+    analysis_dir = tmp_path / "analysis"
+    output_dir = tmp_path / "out_dir"
+    output_dir.mkdir()
+    config_file = tmp_path / "config.toml"
+    config_file.write_text(
+        """
+        [source]
+        name = "Test Source"
+        ra = 83.632
+        dec = 22.0145
+        """
+    )
+    monkeypatch.setattr(summarize_lstana, "summarize_runs", lambda *args, **kwargs: Table({"run_number": [13647]}))
+
+    summarize_lstana.main([str(config_file), "-a", str(analysis_dir), "-o", str(output_dir)])
+    assert (output_dir / "run_summary.ecsv").exists()
 
 
 def test_config_file_defaults_to_project_config():
