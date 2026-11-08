@@ -1,3 +1,5 @@
+"""Metadata and domain values associated with LST data files."""
+
 from dataclasses import dataclass
 from enum import Enum
 from pathlib import Path
@@ -19,6 +21,25 @@ class NSBLevel(float, Enum):
     L2_34 = 2.34
 
 
+def find_closest_nsb_level(nsb_level: float, strict: bool = False) -> NSBLevel:
+    """Find the closest NSBLevel that is higher than the provided value.
+
+    Args:
+        nsb_level: The input float value.
+        strict: If True, looks for level > nsb_level.
+                If False (default), looks for level >= nsb_level.
+
+    Raises:
+        ValueError: If nsb_level exceeds all defined enum levels.
+    """
+    candidates = [level for level in NSBLevel if (level > nsb_level if strict else level >= nsb_level)]
+
+    if not candidates:
+        raise ValueError(f"No NSBLevel found higher than {nsb_level}. Maximum available is {max(NSBLevel).value}.")
+
+    return min(candidates)
+
+
 @dataclass
 class DLAttributes:
     path: Path
@@ -28,8 +49,6 @@ class DLAttributes:
     nsb_level: NSBLevel | None
 
     def __post_init__(self) -> None:
-        # Automatically converts raw floats (e.g. 0.07) into NSBLevel(0.07)
-        # and raises a ValueError if the float is not in the predefined list.
         if isinstance(self.nsb_level, float):
             self.nsb_level = NSBLevel(float(self.nsb_level))
 

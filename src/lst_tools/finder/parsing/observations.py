@@ -1,6 +1,4 @@
-"""
-Helper function for regular expression to parse the path for different levels.
-"""
+"""Parse paths and filenames for observed LST data."""
 
 import re
 from pathlib import Path
@@ -8,7 +6,13 @@ from typing import Literal
 
 from lstchain.image.cleaning import find_tailcuts
 
-from .datalevel_attributes import DL1Attributes, DL2Attributes, DL3Attributes, NSBLevel
+from ..metadata import (
+    DL1Attributes,
+    DL2Attributes,
+    DL3Attributes,
+    NSBLevel,
+    find_closest_nsb_level,
+)
 
 
 def filter_date(files: list[str], start_date: int, end_date: int) -> list[str]:
@@ -90,31 +94,10 @@ def parse_mc_data_type(path: str) -> Literal["ring-wobble", "diffuse"]:
     raise ValueError(f"Could not parse mc data type from: {path!r}")
 
 
-def find_closest_nsb_level(nsb_level: float, strict: bool = False) -> NSBLevel:
-    """Find the closest NSBLevel that is higher than the provided value.
-
-    Args:
-        nsb_level: The input float value.
-        strict: If True, looks for level > nsb_level.
-                If False (default), looks for level >= nsb_level.
-
-    Raises:
-        ValueError: If nsb_level exceeds all defined enum levels.
-    """
-    candidates = [level for level in NSBLevel if (level > nsb_level if strict else level >= nsb_level)]
-
-    if not candidates:
-        raise ValueError(f"No NSBLevel found higher than {nsb_level}. Maximum available is {max(NSBLevel).value}.")
-
-    # Since all candidates are >= nsb_level, the closest higher one is simply the minimum candidate
-    return min(candidates)
-
-
 def parse_dl1_path(path: str, parse_nsb_level: bool = False) -> DL1Attributes:
     run_number = parse_run_id(path)
     tailcuts_level = parse_tailcuts_level(path)
     lstchain_version = parse_lstchain_version(path)
-    # Call lstchain function to get nsb_level
     dl1_path = Path(path)
     if parse_nsb_level:
         directory = dl1_path.parent

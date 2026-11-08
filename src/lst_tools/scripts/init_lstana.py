@@ -32,7 +32,7 @@ from lst_tools.datacheck import (
     assign_zenith_bins,
     validate_zenith_bin_edges,
 )
-from lst_tools.finder.helper import filter_date
+from lst_tools.finder import filter_date
 from lst_tools.helper import glob_files
 from lst_tools.pipeline import (
     DL1Producer,

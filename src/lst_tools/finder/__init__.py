@@ -1,38 +1,46 @@
-"""
-In LST Data Analysis, we will always need to search the data files for different data levels.
-Here we wrapper those functions in here, to provide a convenient interface for searching files.
+"""Find LST data files and parse their metadata.
 
-The supported search includes:
-    - use date range to filter the datacheck file, so that we don't need to load all files
-    - use `find_la_palma_files` to search files already produced on the La Palma server
-    - use `DataLevelSearchResult` to return the search results for different data levels
+This package provides the stable public interface for observed and Monte Carlo
+data discovery, path parsing, and search results.
 """
 
-from .datalevel_attributes import DLAttributes, MCDL2Attribute, NSBLevel
-from .helper import parse_dl1_path, parse_dl2_path, parse_dl3_path
-from .mc_dl2 import MC_DL2_PATH, find_mc_dl2_files, parse_mc_dl2_path
-from .search import LA_PALMA_DATA_PATHS, find_la_palma_files
-from .search_results import (
+from .metadata import (
+    DL1Attributes,
+    DL2Attributes,
+    DL3Attributes,
+    DLAttributes,
+    MCDL2Attribute,
+    NSBLevel,
+)
+from .parsing.mc import parse_mc_dl2_path
+from .parsing.observations import filter_date, parse_dl1_path, parse_dl2_path, parse_dl3_path, parse_run_id
+from .results import (
     DataLevelSearchResult,
     DL1LevelSearchResult,
     DL2LevelSearchResult,
     DL3LevelSearchResult,
 )
+from .search import LA_PALMA_DATA_PATHS, MC_DL2_PATH, find_la_palma_files, find_mc_dl2_files
 
 __all__ = [
     "LA_PALMA_DATA_PATHS",
     "MC_DL2_PATH",
+    "DL1Attributes",
     "DL1LevelSearchResult",
+    "DL2Attributes",
     "DL2LevelSearchResult",
+    "DL3Attributes",
     "DL3LevelSearchResult",
     "DLAttributes",
     "DataLevelSearchResult",
     "MCDL2Attribute",
     "NSBLevel",
+    "filter_date",
     "find_la_palma_files",
     "find_mc_dl2_files",
     "parse_dl1_path",
     "parse_dl2_path",
     "parse_dl3_path",
     "parse_mc_dl2_path",
+    "parse_run_id",
 ]

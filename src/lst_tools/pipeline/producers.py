@@ -23,10 +23,11 @@ from lst_tools.dl1.dl1event import reconstruct_dl1_to_dl2
 from lst_tools.finder import (
     DL1LevelSearchResult,
     DL2LevelSearchResult,
+    DL3Attributes,
     DL3LevelSearchResult,
+    DLAttributes,
     find_la_palma_files,
 )
-from lst_tools.finder.datalevel_attributes import DL3Attributes, DLAttributes
 
 from .configs import DL1ProducerConfig, DL2ProducerConfig, DL3ProducerConfig, SourceConfig
 from .dl3 import DL2Observation, DL3Build, DL3Reduction

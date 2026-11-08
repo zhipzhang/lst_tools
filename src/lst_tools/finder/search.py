@@ -1,17 +1,19 @@
-"""
-Search for already-produced LST data files on the La Palma server.
-"""
+"""Search for existing observed and Monte Carlo LST data files on La Palma."""
 
 import glob
 import warnings
+from pathlib import Path
 
-from .search_results import (
+from .metadata import MCDL2Attribute
+from .parsing.mc import parse_mc_dl2_path
+from .results import (
     DL1LevelSearchResult,
     DL2LevelSearchResult,
     DL3LevelSearchResult,
 )
 
 LA_PALMA_DATA_PATHS = ("/fefs/onsite/data/lst-pipe/LSTN-01", "/fefs/aswg/data/real")
+MC_DL2_PATH = Path("/fefs/aswg/data/mc/DL2/AllSky")
 
 VALID_LEVELS = ("DL1", "DL2", "DL3")
 
@@ -29,7 +31,7 @@ def _glob_run_files(date: int, run_number: int, level: str) -> list[str]:
 def find_la_palma_files(
     date: int, run_number: int, level: str = "dl1"
 ) -> DL1LevelSearchResult | DL2LevelSearchResult | DL3LevelSearchResult:
-    """Search the La Palma server for existing files of one run.
+    """Search the La Palma server for existing files of one observed run.
 
     Returns the search result for the requested data level. Use the
     ``newest_attributes`` property on it: DL1/DL2 give the single file with
@@ -53,3 +55,15 @@ def find_la_palma_files(
     if level == "DL2":
         return DL2LevelSearchResult(matched_files)
     return DL3LevelSearchResult(matched_files)
+
+
+def find_mc_dl2_files(base_directory: str | Path) -> list[MCDL2Attribute]:
+    """Recursively find and parse merged DL2 files below one MC campaign."""
+    base_directory = Path(base_directory)
+    if not base_directory.exists():
+        raise FileNotFoundError(base_directory)
+    if not base_directory.is_dir():
+        raise NotADirectoryError(base_directory)
+
+    paths = sorted(path for path in base_directory.rglob("dl2_*merged.h5") if path.is_file())
+    return [parse_mc_dl2_path(path) for path in paths]

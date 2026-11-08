@@ -1,7 +1,7 @@
 from abc import ABC
 
-from .datalevel_attributes import DL1Attributes, DL2Attributes, DL3Attributes
-from .helper import parse_dl1_path, parse_dl2_path, parse_dl3_path
+from .metadata import DL1Attributes, DL2Attributes, DL3Attributes
+from .parsing.observations import parse_dl1_path, parse_dl2_path, parse_dl3_path
 
 
 def _version_key(attrs: DL1Attributes) -> tuple[int, ...]:

@@ -10,8 +10,7 @@ import lst_tools.pipeline.dl3 as dl3_module
 import lst_tools.pipeline.dl3_execution as execution_module
 import lst_tools.pipeline.producers as producers_module
 from lst_tools.event_filter import EventFilter
-from lst_tools.finder import MC_DL2_PATH
-from lst_tools.finder.datalevel_attributes import DL3Attributes, DLAttributes, MCDL2Attribute
+from lst_tools.finder import MC_DL2_PATH, DL3Attributes, DLAttributes, MCDL2Attribute
 from lst_tools.pipeline import (
     DL1LinkOptions,
     DL1Producer,

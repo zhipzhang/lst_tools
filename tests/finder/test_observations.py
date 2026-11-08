@@ -1,7 +1,7 @@
 import pytest
 
 from lst_tools.finder import NSBLevel
-from lst_tools.finder.helper import (
+from lst_tools.finder.parsing.observations import (
     filter_date,
     parse_dl3_path,
     parse_gh_eff,

@@ -3,12 +3,8 @@ from unittest.mock import patch
 
 import pytest
 
+from lst_tools.finder import DL1LevelSearchResult, DL2LevelSearchResult, DL3LevelSearchResult
 from lst_tools.finder.search import find_la_palma_files
-from lst_tools.finder.search_results import (
-    DL1LevelSearchResult,
-    DL2LevelSearchResult,
-    DL3LevelSearchResult,
-)
 
 DL1_OLD = "/fefs/aswg/data/real/DL1/20250323/v0.10/tailcut1005/dl1_LST-1.Run20463.h5"
 DL1_NEW = "/fefs/onsite/data/lst-pipe/LSTN-01/DL1/20250323/v0.11/tailcut1005/dl1_LST-1.Run20463.h5"

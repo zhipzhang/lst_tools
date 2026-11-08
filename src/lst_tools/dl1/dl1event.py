@@ -6,8 +6,7 @@ from ctapipe.core import run_tool
 from lstchain.tools.lstchain_dl1_to_dl2 import DL1ToDL2Tool
 
 from lst_tools.dl2 import LSTDL2EventTable
-from lst_tools.finder import parse_dl1_path
-from lst_tools.finder.helper import parse_run_id
+from lst_tools.finder import parse_dl1_path, parse_run_id
 
 
 class LSTDL1Event:

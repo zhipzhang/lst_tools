@@ -1,12 +1,10 @@
-"""Parse and find Monte Carlo DL2 files in the standard AllSky layout."""
+"""Parse Monte Carlo DL2 paths in the standard AllSky layout."""
 
 import re
 from pathlib import Path
 from typing import Literal
 
-from .datalevel_attributes import MCDL2Attribute
-
-MC_DL2_PATH = Path("/fefs/aswg/data/mc/DL2/AllSky")
+from ..metadata import MCDL2Attribute
 
 _NSB_PATTERN = re.compile(r"(?:^|_)nsb_(?P<nsb>\d+(?:\.\d+)?)$")
 _DEC_PATTERN = re.compile(r"dec_(?:(?P<negative>min)_)?(?P<digits>\d+)$")
@@ -68,15 +66,3 @@ def parse_mc_dl2_path(path: str | Path) -> MCDL2Attribute:
         nsb=parse_mc_nsb(path),
         dec=parse_mc_dec(path),
     )
-
-
-def find_mc_dl2_files(base_directory: str | Path) -> list[MCDL2Attribute]:
-    """Recursively find and parse merged DL2 files below one MC campaign."""
-    base_directory = Path(base_directory)
-    if not base_directory.exists():
-        raise FileNotFoundError(base_directory)
-    if not base_directory.is_dir():
-        raise NotADirectoryError(base_directory)
-
-    paths = sorted(path for path in base_directory.rglob("dl2_*merged.h5") if path.is_file())
-    return [parse_mc_dl2_path(path) for path in paths]

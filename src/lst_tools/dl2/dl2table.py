@@ -6,7 +6,7 @@ from os import PathLike
 import astropy.units as u
 from lstchain.reco.utils import get_effective_time, get_intensity_cut
 
-from lst_tools.finder.helper import parse_run_id
+from lst_tools.finder import parse_run_id
 
 from ..pointing import Pointing
 from .dl2table_base import LSTDL2TableBase
