@@ -11,6 +11,7 @@ from .metadata import (
     DLAttributes,
     MCDL2Attribute,
     NSBLevel,
+    find_closest_nsb_level,
 )
 from .parsing.mc import parse_mc_dl2_path
 from .parsing.observations import filter_date, parse_dl1_path, parse_dl2_path, parse_dl3_path, parse_run_id
@@ -36,6 +37,7 @@ __all__ = [
     "MCDL2Attribute",
     "NSBLevel",
     "filter_date",
+    "find_closest_nsb_level",
     "find_la_palma_files",
     "find_mc_dl2_files",
     "parse_dl1_path",

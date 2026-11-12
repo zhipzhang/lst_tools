@@ -194,6 +194,10 @@ class TestDL1Producer:
 
 
 class TestDL2Producer:
+    # TEST: Selection behavior is currently unspecified: build scans the whole DL1 directory.
+    # Add selected/unselected/missing/ambiguous cases after the intended contract is decided.
+    # TEST: Local and SLURM cases should share one pending-plan test suite, retaining only
+    # execution-specific assertions here (local reconstruction versus job command submission).
     def test_link_uses_same_tree_as_dl1(self, tmp_path, monkeypatch):
         source = tmp_path / "server" / "dl2_LST-1.Run10623.h5"
         source.parent.mkdir(parents=True, exist_ok=True)
@@ -252,9 +256,11 @@ class TestDL2Producer:
             for dl1_file in files:
                 (out_root / Path(dl1_file).name.replace("dl1", "dl2", 1)).touch()
 
-        monkeypatch.setattr("lst_tools.dl1.dl1event.dl1_to_dl2_batch", fake_batch)
+        monkeypatch.setattr("lst_tools.dl2.reconstruction.dl1_to_dl2_batch", fake_batch)
         return calls
 
+    # TEST: Add a tool-completes-without-output case to verify warning/failed accounting,
+    # and a no-pending SLURM case to verify that no empty job is submitted.
     def test_build_reconstructs_pending_dl1(self, tmp_path, monkeypatch):
         (dl1_file,) = self._make_dl1_tree(tmp_path, 10623)
         calls = self._fake_batch(monkeypatch)
@@ -277,8 +283,8 @@ class TestDL2Producer:
         calls = self._fake_batch(monkeypatch)
         nsb_by_file = {dl1_files[0]: 0.22, dl1_files[1]: 0.38}
         monkeypatch.setattr(
-            "lst_tools.dl1.dl1event.LSTDL1Event",
-            lambda path: SimpleNamespace(nsb_level=nsb_by_file[Path(path)]),
+            "lst_tools.dl2.reconstruction.resolve_dl1_nsb_level",
+            lambda path: nsb_by_file[Path(path)],
         )
         model_directories = {
             tmp_path / "models" / "nsb_tuning_0.22" / "dec_347",
@@ -362,7 +368,7 @@ class TestDL2Producer:
         def unexpected_nsb_lookup(path):
             raise AssertionError(f"SLURM submission looked up NSB for {path}")
 
-        monkeypatch.setattr("lst_tools.dl1.dl1event.LSTDL1Event", unexpected_nsb_lookup)
+        monkeypatch.setattr("lst_tools.dl2.reconstruction.resolve_dl1_nsb_level", unexpected_nsb_lookup)
         submitted_scripts = []
         counter = [0]
 

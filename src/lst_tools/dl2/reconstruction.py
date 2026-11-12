@@ -1,3 +1,5 @@
+"""Reconstruct DL2 files from DL1 inputs using lstchain Random Forest models."""
+
 from collections.abc import Iterable
 from os import PathLike
 from pathlib import Path
@@ -5,44 +7,11 @@ from pathlib import Path
 from ctapipe.core import run_tool
 from lstchain.tools.lstchain_dl1_to_dl2 import DL1ToDL2Tool
 
-from lst_tools.dl2 import LSTDL2EventTable
-from lst_tools.finder import parse_dl1_path, parse_run_id
+from lst_tools.dl1.nsb import resolve_dl1_nsb_level
 
 
-class LSTDL1Event:
-    def __init__(self, file_name: str | PathLike[str]):
-        self.file_name = Path(file_name).resolve()
-        if not self.file_name.exists():
-            raise FileNotFoundError(f"File not found: {self.file_name}")
-        self.run_id = parse_run_id(str(self.file_name))
-
-    @property
-    def nsb_level(self) -> float:
-        try:
-            self.dl1_attrs = parse_dl1_path(str(self.file_name), parse_nsb_level=True)
-        except ValueError as e:
-            raise RuntimeError(f"Failed to parse DL1 path: {e}, use the offical path if possible.")
-        if self.dl1_attrs.nsb_level is None:
-            raise ValueError("NSB level not be estimated from DL1 file")
-        return float(self.dl1_attrs.nsb_level)
-
-    def to_dl2(self, out_root: str | PathLike[str], model_directory: str | PathLike[str]) -> LSTDL2EventTable:
-        if not Path(model_directory).exists():
-            raise FileNotFoundError(f"Model directory not found: {model_directory}")
-        out_root = Path(out_root)
-        out_root.mkdir(parents=True, exist_ok=True)
-        reconstructor = DL1ToDL2Tool(
-            input_files=[self.file_name],
-            path_models=Path(model_directory),
-            output_dir=out_root,
-        )
-        run_tool(reconstructor)
-        dl2_file_name = self.file_name.name.replace("dl1", "dl2")
-        if not Path(out_root / dl2_file_name).exists():
-            raise FileNotFoundError(f"DL2 file not found: {out_root / dl2_file_name}")
-        return LSTDL2EventTable(out_root / dl2_file_name)
-
-
+# REFACTOR: $NSB_LEVEL also has a constant in pipeline.configs. Use one vocabulary and
+# test this planning function directly: literal template, resolved groups, and input order.
 def group_dl1_by_model_directory(
     files: Iterable[str | PathLike[str]],
     model_directory_template: str | PathLike[str],
@@ -55,16 +24,21 @@ def group_dl1_by_model_directory(
 
     groups: dict[Path, list[Path]] = {}
     for dl1_file in dl1_files:
-        nsb_level = LSTDL1Event(dl1_file).nsb_level
+        nsb_level = resolve_dl1_nsb_level(dl1_file)
         model_directory = Path(template.replace("$NSB_LEVEL", f"{nsb_level:.2f}"))
         groups.setdefault(model_directory, []).append(dl1_file)
     return groups
 
 
+# REFACTOR: Keep DL1ToDL2Tool/run_tool behind this single external boundary. Make produced
+# output paths explicit to callers and tests.
 def dl1_to_dl2_batch(files: Iterable[str | PathLike[str]], out_root, model_directory, overwrite=False):
-    events = [LSTDL1Event(f) for f in files]  # validates existence + run id up front
+    input_files = [Path(file).resolve() for file in files]
+    for input_file in input_files:
+        if not input_file.is_file():
+            raise FileNotFoundError(f"File not found: {input_file}")
     tool = DL1ToDL2Tool(
-        input_files=[e.file_name for e in events],
+        input_files=input_files,
         path_models=Path(model_directory),
         output_dir=Path(out_root),
         overwrite=overwrite,
@@ -72,6 +46,9 @@ def dl1_to_dl2_batch(files: Iterable[str | PathLike[str]], out_root, model_direc
     run_tool(tool)
 
 
+# REFACTOR: Define empty-input behavior. A literal template currently runs one empty batch,
+# while an NSB template runs none; both create out_root. Also centralize DL1->DL2 output
+# naming instead of repeating replace("dl1", "dl2", 1) here and in DL2Producer.
 def reconstruct_dl1_to_dl2(
     files: Iterable[str | PathLike[str]],
     out_root: str | PathLike[str],

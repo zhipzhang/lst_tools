@@ -6,7 +6,7 @@ Intended as both a standalone CLI tool and a worker entrypoint for SLURM batch j
 import argparse
 from pathlib import Path
 
-from lst_tools.dl1.dl1event import reconstruct_dl1_to_dl2
+from lst_tools.dl2.reconstruction import reconstruct_dl1_to_dl2
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -63,6 +63,9 @@ def main(argv: list[str] | None = None) -> None:
         )
     except FileNotFoundError as error:
         parser.error(str(error))
+    # REFACTOR: reconstruct_dl1_to_dl2 returns no outputs, so this success message can
+    # overstate what was produced. Return output paths from the canonical function and
+    # report built/skipped/failed files instead of counting input arguments.
     print(f"Reconstructed {len(args.input_files)} DL1 file(s) into {args.output_dir}")
 
 

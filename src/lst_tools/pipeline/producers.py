@@ -19,7 +19,7 @@ from collections.abc import Sequence
 from pathlib import Path
 from typing import Any, ClassVar, Literal
 
-from lst_tools.dl1.dl1event import reconstruct_dl1_to_dl2
+from lst_tools.dl2.reconstruction import reconstruct_dl1_to_dl2
 from lst_tools.finder import (
     DL1LevelSearchResult,
     DL2LevelSearchResult,
@@ -164,6 +164,8 @@ class DL2Producer(DLProducer):
     def link(self, selection: RunSelection) -> Counter:
         return self._link_selection(selection)
 
+    # REFACTOR: Separate worker-command construction from simple_slurm side effects so the
+    # exact local/SLURM plan can be tested without patching a third-party job object.
     def slurm_build(self, selection: RunSelection, slurm_config: SlurmConfig) -> Counter:
         """Submit DL2 batch reconstruction jobs to SLURM via simple_slurm."""
         from simple_slurm import Slurm
@@ -227,13 +229,18 @@ class DL2Producer(DLProducer):
 
         return counts
 
+    # REFACTOR: build() and slurm_build() ignore selection and scan every dl1_*.h5 file.
+    # Define one selected-run contract (matching DL3): exactly one DL1 per selected run,
+    # explicit missing/ambiguous errors, and no reconstruction of unselected files.
+    # REFACTOR: Pending-file discovery, output-name mapping, and existing/overwrite logic
+    # are duplicated in local and SLURM paths. Extract one shared reconstruction plan.
     def build(self, selection: RunSelection) -> Counter:
         """Reconstruct DL2 from the linked DL1 files.
 
         Runs whose DL2 already exists are kept unless ``overwrite = true``.
 
         The rf_directory template's ``$NSB_LEVEL`` placeholder is resolved
-        per run from the run's DL1 file (``LSTDL1Event.nsb_level``); runs
+        per run from the run's DL1 file (``LSTDL1File.nsb_level``); runs
         are grouped by the resolved model directory before reconstruction,
         so one ``dl1_to_dl2_batch`` call handles all runs of one MC group.
         A template without the placeholder is used as-is for every run.

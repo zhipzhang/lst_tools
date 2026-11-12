@@ -1,11 +1,15 @@
 from pathlib import Path
-from types import SimpleNamespace
 
 import pytest
 
 from lst_tools.scripts import dl1_to_dl2
 
 
+# TEST: Add direct tests for lst_tools.dl2.reconstruction. The canonical reconstruction layer
+# currently has no focused tests for model grouping, validation-before-execution, empty
+# input, output naming, or the DL1ToDL2Tool/run_tool boundary.
+# TEST: Keep one CLI wiring test, but move NSB-grouping coverage to the canonical function.
+# CLI tests should mock reconstruct_dl1_to_dl2 rather than its internal dl1_to_dl2_batch.
 class TestBuildParser:
     def test_required_arguments(self):
         parser = dl1_to_dl2.build_parser()
@@ -87,7 +91,7 @@ class TestMain:
             captured["model_directory"] = model_directory
             captured["overwrite"] = overwrite
 
-        monkeypatch.setattr("lst_tools.dl1.dl1event.dl1_to_dl2_batch", fake_batch)
+        monkeypatch.setattr("lst_tools.dl2.reconstruction.dl1_to_dl2_batch", fake_batch)
 
         dl1_to_dl2.main(
             [
@@ -110,6 +114,8 @@ class TestMain:
         stdout = capsys.readouterr().out
         assert "Reconstructed 1 DL1 file(s)" in stdout
 
+    # TEST: This duplicates producer NSB coverage. Keep detailed grouping assertions at the
+    # canonical reconstruction layer; here only verify that CLI arguments reach that layer.
     def test_nsb_template_groups_runs_by_resolved_model(self, tmp_path, monkeypatch):
         dl1_files = [tmp_path / f"dl1_000{run}.h5" for run in (1, 2, 3)]
         for dl1_file in dl1_files:
@@ -124,10 +130,10 @@ class TestMain:
         def fake_batch(files, out_root, model_directory, overwrite=False):
             calls.append((list(files), Path(out_root), Path(model_directory), overwrite))
 
-        monkeypatch.setattr("lst_tools.dl1.dl1event.dl1_to_dl2_batch", fake_batch)
+        monkeypatch.setattr("lst_tools.dl2.reconstruction.dl1_to_dl2_batch", fake_batch)
         monkeypatch.setattr(
-            "lst_tools.dl1.dl1event.LSTDL1Event",
-            lambda path: SimpleNamespace(nsb_level=nsb_by_file[Path(path)]),
+            "lst_tools.dl2.reconstruction.resolve_dl1_nsb_level",
+            lambda path: nsb_by_file[Path(path)],
         )
 
         dl1_to_dl2.main(

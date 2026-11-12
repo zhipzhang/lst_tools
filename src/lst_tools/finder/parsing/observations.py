@@ -4,14 +4,11 @@ import re
 from pathlib import Path
 from typing import Literal
 
-from lstchain.image.cleaning import find_tailcuts
-
 from ..metadata import (
     DL1Attributes,
     DL2Attributes,
     DL3Attributes,
     NSBLevel,
-    find_closest_nsb_level,
 )
 
 
@@ -94,18 +91,11 @@ def parse_mc_data_type(path: str) -> Literal["ring-wobble", "diffuse"]:
     raise ValueError(f"Could not parse mc data type from: {path!r}")
 
 
-def parse_dl1_path(path: str, parse_nsb_level: bool = False) -> DL1Attributes:
+def parse_dl1_path(path: str) -> DL1Attributes:
     run_number = parse_run_id(path)
     tailcuts_level = parse_tailcuts_level(path)
     lstchain_version = parse_lstchain_version(path)
-    dl1_path = Path(path)
-    if parse_nsb_level:
-        directory = dl1_path.parent
-        _, nsb_level, _ = find_tailcuts(directory, run_number)
-        return DL1Attributes(dl1_path, run_number, tailcuts_level, lstchain_version, find_closest_nsb_level(nsb_level))
-    else:
-        nsb_level = None
-        return DL1Attributes(dl1_path, run_number, tailcuts_level, lstchain_version, nsb_level)
+    return DL1Attributes(Path(path), run_number, tailcuts_level, lstchain_version, None)
 
 
 def parse_dl2_path(path: str) -> DL2Attributes:
