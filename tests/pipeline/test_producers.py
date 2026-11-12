@@ -32,8 +32,8 @@ from lst_tools.pipeline import (
 )
 
 
-def make_selection(rows, edges=(0.0, 20.0, 30.0)) -> RunSelection:
-    return RunSelection(edges=edges, selected=pd.DataFrame(rows))
+def make_selection(rows) -> RunSelection:
+    return RunSelection(selected=pd.DataFrame(rows))
 
 
 class ImmediateExecutor:
@@ -97,13 +97,12 @@ def patch_finder(monkeypatch, results_by_key: dict):
     monkeypatch.setattr(producers_module, "find_la_palma_files", fake_find)
 
 
-RUN_10623 = {"run_number": 10623, "date": 20220426, "zenith_bin": "zd_20_30"}
-RUN_10624 = {"run_number": 10624, "date": 20220426, "zenith_bin": "zd_0_20"}
-RUN_UNBINNED = {"run_number": 10625, "date": 20220427, "zenith_bin": None}
+RUN_10623 = {"run_number": 10623, "date": 20220426}
+RUN_10624 = {"run_number": 10624, "date": 20220426}
 
 
 class TestDL1Producer:
-    def test_link_places_newest_files_in_zenith_bin_tree(self, tmp_path, monkeypatch):
+    def test_link_places_newest_files_in_flat_directory(self, tmp_path, monkeypatch):
         source_1 = tmp_path / "server" / "dl1_LST-1.Run10623.h5"
         source_2 = tmp_path / "server" / "dl1_LST-1.Run10624.h5"
         source_1.parent.mkdir(parents=True)
@@ -120,8 +119,8 @@ class TestDL1Producer:
 
         counts = producer.produce(make_selection([RUN_10623, RUN_10624]))
 
-        assert (tmp_path / "out" / "dl1" / "zd_20_30" / source_1.name).is_symlink()
-        assert (tmp_path / "out" / "dl1" / "zd_0_20" / source_2.name).is_symlink()
+        assert (tmp_path / "out" / "dl1" / source_1.name).is_symlink()
+        assert (tmp_path / "out" / "dl1" / source_2.name).is_symlink()
         assert counts["dl1:created"] == 2
 
     def test_link_is_idempotent(self, tmp_path, monkeypatch):
@@ -145,7 +144,7 @@ class TestDL1Producer:
         source.touch()
         patch_finder(monkeypatch, {(20220426, 10623, "dl1"): SimpleNamespace(newest_attributes=make_dl_attrs(source))})
         output_root = tmp_path / "out"
-        taken = output_root / "dl1" / "zd_20_30" / source.name
+        taken = output_root / "dl1" / source.name
         taken.parent.mkdir(parents=True)
         taken.symlink_to(tmp_path / "somewhere_else.h5")
         producer = DL1Producer(DL1ProducerConfig(), output_root)
@@ -165,19 +164,6 @@ class TestDL1Producer:
         assert counts["dl1:created"] == 0
         assert not (tmp_path / "out" / "dl1").exists()
 
-    def test_unbinned_runs_warn_and_are_counted(self, tmp_path, monkeypatch):
-        source = tmp_path / "server" / "dl1_LST-1.Run10623.h5"
-        source.parent.mkdir(parents=True, exist_ok=True)
-        source.touch()
-        patch_finder(monkeypatch, {(20220426, 10623, "dl1"): SimpleNamespace(newest_attributes=make_dl_attrs(source))})
-        producer = DL1Producer(DL1ProducerConfig(), tmp_path / "out")
-
-        with pytest.warns(UserWarning, match="no zenith bin"):
-            counts = producer.produce(make_selection([RUN_10623, RUN_UNBINNED]))
-
-        assert counts["dl1:unbinned"] == 1
-        assert counts["dl1:created"] == 1
-
     def test_build_raises_not_implemented_yet(self, tmp_path):
         config = DL1ProducerConfig(enabled=True, source="build")  # type: ignore[arg-type]
 
@@ -194,7 +180,7 @@ class TestDL1Producer:
 
         producer.produce(make_selection([RUN_10623]))
 
-        assert (tmp_path / "custom_dl1" / "zd_20_30" / source.name).is_symlink()
+        assert (tmp_path / "custom_dl1" / source.name).is_symlink()
         assert not (tmp_path / "out" / "dl1").exists()
 
     def test_disabled_producer_does_nothing(self, tmp_path, monkeypatch):
@@ -217,7 +203,7 @@ class TestDL2Producer:
 
         counts = producer.produce(make_selection([RUN_10623]))
 
-        assert (tmp_path / "out" / "dl2" / "zd_20_30" / source.name).is_symlink()
+        assert (tmp_path / "out" / "dl2" / source.name).is_symlink()
         assert counts["dl2:created"] == 1
 
     @pytest.mark.parametrize(
@@ -249,7 +235,7 @@ class TestDL2Producer:
     def _make_dl1_tree(self, tmp_path, *run_numbers: int) -> list[Path]:
         files = []
         for run_number in run_numbers:
-            dl1_file = tmp_path / "out" / "dl1" / "zd_20_30" / f"dl1_LST-1.Run{run_number:05d}.h5"
+            dl1_file = tmp_path / "out" / "dl1" / f"dl1_LST-1.Run{run_number:05d}.h5"
             dl1_file.parent.mkdir(parents=True, exist_ok=True)
             dl1_file.touch()
             files.append(dl1_file)
@@ -284,7 +270,7 @@ class TestDL2Producer:
         counts = producer.produce(make_selection([RUN_10623]))
 
         assert counts["dl2:built"] == 1
-        assert calls == [([dl1_file], tmp_path / "out" / "dl2" / "zd_20_30", model_directory, False)]
+        assert calls == [([dl1_file], tmp_path / "out" / "dl2", model_directory, False)]
 
     def test_build_resolves_nsb_level_placeholder_per_run(self, tmp_path, monkeypatch):
         dl1_files = self._make_dl1_tree(tmp_path, 10623, 10624)
@@ -317,7 +303,7 @@ class TestDL2Producer:
         calls = self._fake_batch(monkeypatch)
         model_directory = tmp_path / "models"
         model_directory.mkdir()
-        dl2_file = tmp_path / "out" / "dl2" / "zd_20_30" / "dl2_LST-1.Run10623.h5"
+        dl2_file = tmp_path / "out" / "dl2" / "dl2_LST-1.Run10623.h5"
         dl2_file.parent.mkdir(parents=True)
         dl2_file.touch()
         config = DL2ProducerConfig(
@@ -402,7 +388,7 @@ class TestDL2Producer:
 
     def test_slurm_build_skips_existing_unless_overwrite(self, tmp_path, monkeypatch):
         self._make_dl1_tree(tmp_path, 10001, 10002)
-        dl2_file = tmp_path / "out" / "dl2" / "zd_20_30" / "dl2_LST-1.Run10001.h5"
+        dl2_file = tmp_path / "out" / "dl2" / "dl2_LST-1.Run10001.h5"
         dl2_file.parent.mkdir(parents=True, exist_ok=True)
         dl2_file.touch()
 
@@ -450,7 +436,7 @@ class TestDL2Producer:
 
 
 
-DL3_RUN = {"run_number": 14083, "date": 20230821, "zenith_bin": "zd_20_30"}
+DL3_RUN = {"run_number": 14083, "date": 20230821}
 
 # Server paths as the finder would return them; only the parsed attributes matter here.
 DL3_FULL = "/fefs/onsite/data/lst-pipe/LSTN-01/DL3/20230821/v0.11/tailcut1005/nsb_tuning_0.38/0.11.0/src_indep/full-enclosure/ring-wobble/gheff0.7_thetacont0.7/irf_interp/dl3_LST-1.Run14083.fits"
@@ -480,7 +466,7 @@ class TestDL3Producer:
 
         counts = producer.produce(make_selection([DL3_RUN]))
 
-        tree = tmp_path / "out" / "dl3" / "zd_20_30"
+        tree = tmp_path / "out" / "dl3"
         assert (
             tree / "full-enclosure" / "ring-wobble" / "gheff0.7_thetacont0.7" / "dl3_LST-1.Run14083.fits"
         ).is_symlink()
@@ -502,15 +488,14 @@ class TestDL3Producer:
         counts = producer.produce(make_selection([DL3_RUN]))
 
         assert counts["dl3:created"] == 1
-        linked = [path for path in (tmp_path / "out" / "dl3" / "zd_20_30").rglob("*.fits")]
+        linked = [path for path in (tmp_path / "out" / "dl3").rglob("*.fits")]
         assert len(linked) == 1
         assert linked[0].parent.parent.parent.name == irf_type
 
     def _make_dl2_tree(self, tmp_path, *run_numbers: int) -> list[Path]:
         files = []
         for run_number in run_numbers:
-            zenith_bin = "zd_0_20" if run_number == 10624 else "zd_20_30"
-            dl2_file = tmp_path / "out" / "dl2" / zenith_bin / f"dl2_LST-1.Run{run_number:05d}.h5"
+            dl2_file = tmp_path / "out" / "dl2" / f"dl2_LST-1.Run{run_number:05d}.h5"
             dl2_file.parent.mkdir(parents=True, exist_ok=True)
             dl2_file.touch()
             files.append(dl2_file)
@@ -575,7 +560,7 @@ class TestDL3Producer:
         options.update(overrides)
         return DL3ProducerConfig(enabled=True, source="build", build=DL3BuildOptions(**options))
 
-    def test_build_generates_irfs_and_reduces_per_bin(self, tmp_path, monkeypatch):
+    def test_build_generates_irfs_and_reduces_all_selected_runs(self, tmp_path, monkeypatch):
         dl2_files = self._make_dl2_tree(tmp_path, 10623, 10624)
         made_nodes, reductions, generator_bases, campaigns = self._fake_irf_and_reduction(monkeypatch)
         producer = DL3Producer(
@@ -589,10 +574,7 @@ class TestDL3Producer:
         assert made_nodes[0].irf_type == "full-enclosure"
         assert counts == {"dl3:irf_nodes": 1, "dl3:reduced": 2, "dl3:failed": 0}
         assert generator_bases == [tmp_path / "out" / "irfs" / "standard"]
-        assert reductions == [
-            ([dl2_files[0]], tmp_path / "out" / "dl3" / "standard" / "zd_20_30"),
-            ([dl2_files[1]], tmp_path / "out" / "dl3" / "standard" / "zd_0_20"),
-        ]
+        assert reductions == [(dl2_files, tmp_path / "out" / "dl3" / "standard")]
         assert campaigns == [MC_DL2_PATH / "20250212_v0.10.17_allsky_interp_dl2_irfs_nsb_0.38"]
 
     @pytest.mark.parametrize("point_like", [False, True])
@@ -654,7 +636,7 @@ class TestDL3Producer:
         assert [node.cut_label for node in made_nodes] == ["ghcut0.7", "ghcut0.7"]
         assert generator_bases == [tmp_path / "out" / "irfs" / name for name in ("standard", "quality_tight")]
         assert reductions == [
-            (dl2_files, tmp_path / "out" / "dl3" / name / "zd_20_30") for name in ("standard", "quality_tight")
+            (dl2_files, tmp_path / "out" / "dl3" / name) for name in ("standard", "quality_tight")
         ]
         assert counts["dl3:irf_nodes"] == 2
         assert counts["dl3:reduced"] == 2
@@ -674,7 +656,7 @@ class TestDL3Producer:
         producer.produce(make_selection([RUN_10623]))
 
         assert generator_bases == [tmp_path / "my_irfs" / "standard"]
-        assert reductions[0][1] == tmp_path / "my_dl3" / "standard" / "zd_20_30"
+        assert reductions[0][1] == tmp_path / "my_dl3" / "standard"
         assert campaigns == [tmp_path / "mc_0.38"]
 
     def test_build_requires_source(self, tmp_path):
@@ -694,7 +676,7 @@ class TestDL3Producer:
             producer.produce(make_selection([RUN_10623, RUN_10624]))
 
         assert "10624" in str(error.value)
-        assert "zd_0_20" in str(error.value)
+        assert str(tmp_path / "out" / "dl2") in str(error.value)
         assert not made_nodes and not reductions and not campaigns
         assert not (tmp_path / "out" / "slurm_jobs").exists()
 
@@ -741,14 +723,6 @@ class TestDL3Producer:
         assert producer.produce(selection) == {}
         assert not made_nodes and not reductions and not campaigns
         assert not (tmp_path / "out" / "slurm_jobs").exists()
-
-    def test_unbinned_runs_warn_and_are_excluded(self, tmp_path, monkeypatch):
-        self._make_dl2_tree(tmp_path, 10623)
-        _, reductions, _, _ = self._fake_irf_and_reduction(monkeypatch)
-        producer = DL3Producer(self._build_config(), tmp_path / "out", source=SourceConfig("Crab", 83.6, 22.0))
-        with pytest.warns(UserWarning, match="1 runs have no zenith bin"):
-            producer.produce(make_selection([RUN_10623, {**RUN_10624, "zenith_bin": None}]))
-        assert len(reductions[0][0]) == 1
 
     def test_missing_mc_nodes_stop_before_reduction(self, tmp_path, monkeypatch):
         self._make_dl2_tree(tmp_path, 10623)

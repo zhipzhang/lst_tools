@@ -124,9 +124,6 @@ def test_main_uses_first_reduction_when_multiple(tmp_path, monkeypatch):
         ra = 83.632
         dec = 22.0145
 
-        [zenith_binning]
-        edges_deg = [0.0, 20.0, 30.0]
-
         [dl3]
         enabled = true
         source = "build"

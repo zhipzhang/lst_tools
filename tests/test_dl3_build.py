@@ -62,7 +62,7 @@ def test_build_reuses_products_with_real_processes(tmp_path):
     from lst_tools.pipeline import DL3BuildOptions, DL3Producer, DL3ProducerConfig, DL3ReductionOptions, RunSelection
     from lst_tools.pipeline.configs import SourceConfig
 
-    dl2_dir = tmp_path / "dl2" / "zd_20_30"
+    dl2_dir = tmp_path / "dl2"
     dl2_dir.mkdir(parents=True)
     dl2_file = dl2_dir / "dl2_LST-1.Run10623.h5"
     events = pd.DataFrame({
@@ -96,13 +96,11 @@ def test_build_reuses_products_with_real_processes(tmp_path):
         irf_file.parent.mkdir(parents=True)
         fits.PrimaryHDU().writeto(irf_file)
         (irf_file.parent / f"{node.pointing_name}.config.json").write_text(json.dumps(config.to_lstchain_config()))
-        output = tmp_path / "dl3" / reduction.name / "zd_20_30" / dl2_to_dl3_filename(dl2_file)
+        output = tmp_path / "dl3" / reduction.name / dl2_to_dl3_filename(dl2_file)
         output.parent.mkdir(parents=True)
         fits.PrimaryHDU().writeto(output)
 
-    selection = RunSelection((20, 30), pd.DataFrame([{
-        "run_number": 10623, "date": 20220426, "zenith_bin": "zd_20_30"
-    }]))
+    selection = RunSelection(pd.DataFrame([{"run_number": 10623, "date": 20220426}]))
     producer = DL3Producer(
         DL3ProducerConfig(enabled=True, source="build", build=DL3BuildOptions(
             reductions=reductions, mc_dl2_directory=str(tmp_path / "mc_nsb_$NSB_LEVEL")

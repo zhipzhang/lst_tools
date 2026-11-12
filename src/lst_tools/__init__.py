@@ -2,17 +2,12 @@
 
 from importlib.metadata import PackageNotFoundError, version
 
-from .datacheck import (
-    DataCheckTables,
-    DataFilter,
-    assign_zenith_bins,
-)
+from .datacheck import DataCheckTables, DataFilter
 from .helper import glob_files, plot_histogram
 
 __all__ = [
     "DataCheckTables",
     "DataFilter",
-    "assign_zenith_bins",
     "glob_files",
     "plot_advanced_distributions",
     "plot_histogram",

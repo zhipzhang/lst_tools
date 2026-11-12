@@ -1,8 +1,8 @@
 The analysis pipeline: ``init-lstana``
 ======================================
 
-Edit ``config/config.toml`` (the source, zenith binning, quality cuts, and
-one section per data level), then run:
+Edit ``config/config.toml`` (the source, quality cuts, and one section per
+data level), then run:
 
 .. code-block:: bash
 
@@ -10,24 +10,23 @@ one section per data level), then run:
 
 Every data level has two possible origins, selected by a ``source`` key:
 
-- ``source = "link"`` — place the files the standard pipeline already
-  produced on La Palma into the workspace zenith-bin tree.
+- ``source = "link"`` — place files the standard pipeline already produced
+  on La Palma directly into the corresponding data-level directory.
 - ``source = "build"`` — produce the level ourselves.
 
 Stages
 ------
 
 1. **Select runs** — nightly DataCheck statistics filtered by the
-   ``[data_filter]`` cuts (and the ``[source]`` position), grouped into the
-   ``[zenith_binning]`` bins. The selected runs are saved under
-   ``data_check/`` and reused: when that file exists, it is loaded and the
-   nightly files are not read again. ``--refresh-selection`` recomputes the
-   selection — do that after changing the cuts, the source or the zenith
-   binning. With ``[data_filter] away_source = true`` the target-angle cut
-   is replaced by a catalog-separation cut (``min_distance``,
-   ``extension_factor``), so the same pass selects off runs.
+   ``[data_filter]`` cuts (and the ``[source]`` position). The selected runs
+   are saved under ``data_check/`` and reused: when that file exists, it is
+   loaded and the nightly files are not read again. ``--refresh-selection``
+   recomputes the selection after changing the cuts or source. With
+   ``[data_filter] away_source = true`` the target-angle cut is replaced by
+   a catalog-separation cut (``min_distance``, ``extension_factor``), so the
+   same pass selects off runs.
 2. **DL1** (``[dl1]``) — the external input; linking is the only supported
-   mode today (``dl1/<zd_bin>/``).
+   mode today (``dl1/``).
 3. **DL2** (``[dl2]``) — either link the official DL2, or build our own by
    reconstructing the linked DL1 with the RF models of
    ``[dl2.build] rf_directory``. The RF directory is a *template*:
@@ -54,13 +53,12 @@ reduction and the gammaness cut (``gh_cut`` or ``gh_efficiency``) is carried
 inside the IRFs, so data and IRFs always agree. Shared interpolation and MC
 options stay under ``[dl3.build]``.
 
-DL3 builds follow ``RunSelection``. Each selected, binned run must have
-exactly one DL2 file under its assigned ``dl2/<zd_bin>/`` directory. Missing
-inputs stop the build with a list of runs and directories; ambiguous matches
-are rejected. Unselected files are ignored, and unbinned runs are skipped
-with a warning. An empty selection performs no work and submits no job.
-The selected file paths and reduction definitions are saved with a SLURM
-build, and the worker checks that the files still exist before starting.
+DL3 builds follow ``RunSelection``. Each selected run must have exactly one
+DL2 file directly below ``dl2/``. Missing inputs stop the build with a list
+of runs; ambiguous matches are rejected. Unselected files are ignored, and
+an empty selection performs no work and submits no job. The selected file
+paths and reduction definitions are saved with a SLURM build, and the worker
+checks that the files still exist before starting.
 
 The build prepares IRF interpolation sets in parallel, then runs named
 reductions in parallel after all IRFs are ready. Workers are bounded by the
@@ -75,12 +73,12 @@ Workspace layout
 
    analysis/
    ├── data_check/
-   ├── dl1/<zd_bin>/     # linked input (stage 2)
-   ├── dl2/<zd_bin>/     # linked or built (stage 3)
+   ├── dl1/              # linked input (stage 2)
+   ├── dl2/              # linked or built (stage 3)
    ├── irfs/             # built during the DL3 build
    │   └── <reduction_name>/nsb_<nsb>/dec_<line>/<irf_type>/<cut_label>/
    │       └── theta_<zenith>_az_<azimuth>.irf.fits.gz
-   └── dl3/<reduction_name>/<zd_bin>/  # built reductions (stage 4)
+   └── dl3/<reduction_name>/  # built reductions (stage 4)
 
 The unique ``<reduction_name>`` keeps DL3 products and IRFs separate, even
 when reductions differ only in their quality cuts. Here ``<irf_type>`` is
@@ -89,13 +87,12 @@ gammaness selection, ``gheff0.7`` for an energy-dependent efficiency or
 ``ghcut0.7`` for a fixed cut. Each reduction reads the IRF directory matching
 its own configuration, so incompatible IRFs never share an interpolation set.
 
-Zenith bins include their lower edge and exclude their upper edge; the last
-bin also includes its upper edge. Reruns are incremental: existing links are
-kept, existing files are reused, and conflicting files are never replaced.
-Each level's build mode has an ``overwrite`` option to force rebuilding. A
-reduction name identifies its configuration: after changing its cuts, use a
-new name or enable ``overwrite`` to avoid reusing the previous DL3 files.
-DL4 generation should select one named reduction at a time.
+Reruns are incremental: existing links are kept, existing files are reused,
+and conflicting files are never replaced. Each level's build mode has an
+``overwrite`` option to force rebuilding. A reduction name identifies its
+configuration: after changing its cuts, use a new name or enable
+``overwrite`` to avoid reusing the previous DL3 files. DL4 generation should
+select one named reduction at a time.
 
 Configuration
 -------------

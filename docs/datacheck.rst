@@ -29,9 +29,3 @@ Quality cuts are applied with :class:`~lst_tools.datacheck.DataFilter`:
    )
    after_basic = data_filter.apply_basic_cuts(statistics)
    selected = data_filter.apply_advanced_cuts(after_basic)
-
-Zenith binning helpers (:func:`~lst_tools.datacheck.assign_zenith_bins`,
-:func:`~lst_tools.datacheck.zenith_bin_labels`,
-:func:`~lst_tools.datacheck.validate_zenith_bin_edges`) group the selected
-runs into bins. Bins include their lower edge and exclude their upper edge;
-the last bin also includes its upper edge.

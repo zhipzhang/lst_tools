@@ -1,6 +1,5 @@
 """Selected observations and the named reductions that produce their DL3 files."""
 
-import warnings
 from collections import Counter
 from dataclasses import dataclass
 from pathlib import Path
@@ -12,45 +11,37 @@ from lst_tools.finder import MC_DL2_PATH, MCDL2Attribute, find_mc_dl2_files, par
 from lst_tools.irf import IRFConfig, IRFGenerator, IRFNode, MCNode, irf_group_path
 
 from .configs import NSB_LEVEL_VARIABLE, DL3BuildOptions, DL3ReductionOptions, SourceConfig
-from .selection import RunSelection, SelectedRun
+from .selection import RunSelection
 
 
 @dataclass(frozen=True)
 class DL2Observation:
-    run: SelectedRun
     path: Path
 
     @classmethod
     def from_selection(cls, selection: RunSelection, directory: Path) -> tuple["DL2Observation", ...]:
+        files_by_run: dict[int, list[Path]] = {}
+        for path in sorted(directory.glob("dl2_*.h5")):
+            if not path.is_file():
+                continue
+            try:
+                run_number = parse_run_id(path.name)
+            except ValueError:
+                continue
+            files_by_run.setdefault(run_number, []).append(path)
+
         observations = []
         missing = []
-        files_by_bin: dict[str, dict[int, list[Path]]] = {}
         for run in selection:
-            if run.zenith_bin not in files_by_bin:
-                files: dict[int, list[Path]] = {}
-                for path in sorted((directory / run.zenith_bin).glob("dl2_*.h5")):
-                    if not path.is_file():
-                        continue
-                    try:
-                        run_number = parse_run_id(path.name)
-                    except ValueError:
-                        continue
-                    files.setdefault(run_number, []).append(path)
-                files_by_bin[run.zenith_bin] = files
-            matches = files_by_bin[run.zenith_bin].get(run.run_number, [])
+            matches = files_by_run.get(run.run_number, [])
             if not matches:
-                missing.append(f"run {run.run_number} ({run.date}) in {directory / run.zenith_bin}")
+                missing.append(f"run {run.run_number} ({run.date}) in {directory}")
             elif len(matches) > 1:
                 raise ValueError(f"dl3: multiple DL2 files for selected run {run.run_number}: {matches}")
             else:
-                observations.append(cls(run, matches[0].absolute()))
+                observations.append(cls(matches[0].absolute()))
         if missing:
             raise FileNotFoundError("dl3: missing DL2 files for selected runs:\n" + "\n".join(missing))
-        if selection.unbinned_run_numbers:
-            warnings.warn(
-                f"dl3: {len(selection.unbinned_run_numbers)} runs have no zenith bin; skipped",
-                stacklevel=2,
-            )
         return tuple(observations)
 
     def mc_group(self) -> "MCGroup":
@@ -166,14 +157,13 @@ class DL3Reduction:
             use_nearest_irf_node=self.use_nearest_irf_node,
             overwrite=self.overwrite,
         )
-        files_by_bin: dict[str, list[Path]] = {}
-        for observation in self.observations:
-            files_by_bin.setdefault(observation.run.zenith_bin, []).append(observation.path)
         counts: Counter = Counter()
-        for zenith_bin, files in files_by_bin.items():
-            reduced = reducer.reduce(files, self.output_dir / zenith_bin)
-            counts["dl3:reduced"] += len(reduced)
-            counts["dl3:failed"] += len(files) - len(reduced)
+        if not self.observations:
+            return counts
+        files = [observation.path for observation in self.observations]
+        reduced = reducer.reduce(files, self.output_dir)
+        counts["dl3:reduced"] += len(reduced)
+        counts["dl3:failed"] += len(files) - len(reduced)
         return counts
 
 

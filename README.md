@@ -46,8 +46,8 @@ selected = data_filter.apply_advanced_cuts(after_basic)
 
 ## Running the analysis pipeline: `init-lstana`
 
-Edit `config/config.toml` (the source, zenith binning, quality cuts, and
-one section per data level), then run:
+Edit `config/config.toml` (the source, quality cuts, and one section per
+data level), then run:
 
 ```bash
 init-lstana config/config.toml --output /path/to/analysis
@@ -55,18 +55,18 @@ init-lstana config/config.toml --output /path/to/analysis
 
 Every data level has two possible origins, selected by a `source` key:
 
-- `source = "link"` — place the files the standard pipeline already
-  produced on La Palma into the workspace zenith-bin tree.
+- `source = "link"` — place files the standard pipeline already produced on
+  La Palma directly into the corresponding data-level directory.
 - `source = "build"` — produce the level ourselves.
 
 The stages:
 
 1. **Select runs** — nightly DataCheck statistics filtered by the
-   `[data_filter]` cuts (and the `[source]` position), grouped into the
-   `[zenith_binning]` bins. The selected runs are saved under `data_check/`
-   and reused by later runs; `--refresh-selection` recomputes them.
+   `[data_filter]` cuts (and the `[source]` position). The selected runs are
+   saved under `data_check/` and reused by later runs; `--refresh-selection`
+   recomputes them.
 2. **DL1** (`[dl1]`) — the external input; linking is the only supported
-   mode today (`dl1/<zd_bin>/`).
+   mode today (`dl1/`).
 3. **DL2** (`[dl2]`) — either link the official DL2, or build our own by
    reconstructing the linked DL1 with the RF models of
    `[dl2.build] rf_directory` (a template: `$NSB_LEVEL` is substituted
@@ -88,18 +88,17 @@ quality filters (`intensity_cut`, `leakage_cut`) are passed to the reduction
 and its gammaness cut (`gh_cut` or `gh_efficiency`) is carried inside the
 IRFs, so data and IRFs always agree. Shared interpolation and MC options stay
 under `[dl3.build]`. Generated DL3 files are stored under
-`dl3/<reduction_name>/<zd_bin>/`, and IRFs under
+`dl3/<reduction_name>/`, and IRFs under
 `irfs/<reduction_name>/nsb_<nsb>/dec_<line>/<irf_type>/<cut_label>/`.
 The unique reduction name keeps products separate even when only their
 quality cuts differ; `<irf_type>` is `point` or `full-enclosure`, and
 `<cut_label>` names the gammaness selection (`gheff0.7` or `ghcut0.7`).
 
-DL3 builds follow `RunSelection`: each selected, binned run must have exactly
-one DL2 file under its assigned `dl2/<zd_bin>/` directory. Missing inputs
-stop the build with a list of runs and directories; ambiguous matches are
-rejected. Unselected files are ignored, and unbinned runs are skipped with
-a warning. The same selected inputs are saved with a SLURM build and checked
-again when its worker starts.
+DL3 builds follow `RunSelection`: each selected run must have exactly one DL2
+file directly below `dl2/`. Missing inputs stop the build with a list of runs;
+ambiguous matches are rejected. Unselected files are ignored. The same
+selected inputs are saved with a SLURM build and checked again when its worker
+starts.
 
 DL3 builds prepare IRF interpolation sets in parallel, then run named
 reductions in parallel after all IRFs are ready. Workers are bounded by the
@@ -107,11 +106,10 @@ local CPU count, or the job's CPU allocation under SLURM. With SLURM enabled,
 the same build runs inside one job; `[slurm.dl3]` sets its CPU, memory, and
 walltime allocation.
 
-Zenith bins include their lower edge and exclude their upper edge; the
-last bin also includes its upper edge. Reruns are incremental: existing
-links are kept, existing files are reused, and conflicting files are
-never replaced (each level has an `overwrite` option for its build mode).
-See the comments in `config/config.toml` for every option.
+Reruns are incremental: existing links are kept, existing files are reused,
+and conflicting files are never replaced (each level has an `overwrite`
+option for its build mode). See the comments in `config/config.toml` for every
+option.
 
 ## Summarizing selected runs: `summarize-lstana`
 

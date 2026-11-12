@@ -16,8 +16,14 @@ from lst_tools.scripts import init_lstana
 
 MINIMAL_CONFIG = {
     "source": {"name": "Crab Nebula", "ra": 83.632, "dec": 22.0145},
-    "zenith_binning": {"edges_deg": [0.0, 20.0, 30.0]},
-    "data_filter": {"cuts": {"first_date": 20220101, "last_date": 20221231}},
+    "data_filter": {
+        "cuts": {
+            "first_date": 20220101,
+            "last_date": 20221231,
+            "min_zenith_angle": 0.0,
+            "max_zenith_angle": 30.0,
+        }
+    },
 }
 
 
@@ -74,18 +80,16 @@ def make_stats_frame():
 
 
 class TestSelectRuns:
-    def test_returns_a_run_selection_with_bins_and_bookkeeping(self, monkeypatch):
+    def test_returns_all_selected_runs_and_bookkeeping(self, monkeypatch):
         tables = SimpleNamespace(statistics=make_stats_frame())
         monkeypatch.setattr(init_lstana, "load_datacheck_tables", lambda config: tables)
         monkeypatch.setattr(init_lstana, "DataFilter", FakeDataFilter)
 
         selection = init_lstana.select_runs(MINIMAL_CONFIG)
 
-        assert selection.edges == (0.0, 20.0, 30.0)
         assert selection.tables is tables
         assert selection.after_basic_cuts is tables.statistics
-        assert [run.zenith_bin for run in selection] == ["zd_0_20", "zd_20_30"]
-        # the zenith range of the configured binning becomes a data cut
+        assert [run.run_number for run in selection] == [1, 2]
         assert selection.data_filter.kwargs["min_zenith_angle"] == 0.0
         assert selection.data_filter.kwargs["max_zenith_angle"] == 30.0
 
@@ -215,10 +219,7 @@ def make_datacheck_tables():
 class TestSavedSelection:
     def test_saved_outputs_reload_as_the_same_selection(self, tmp_path, monkeypatch):
         selection = RunSelection(
-            edges=(0.0, 20.0, 30.0),
-            selected=pd.DataFrame(
-                {"run_number": [1, 2], "date": [20240101, 20240101], "zenith_bin": ["zd_0_20", "zd_20_30"]}
-            ),
+            selected=pd.DataFrame({"run_number": [1, 2], "date": [20240101, 20240101]}),
             tables=make_datacheck_tables(),
             after_basic_cuts=pd.DataFrame(),
         )
@@ -229,8 +230,6 @@ class TestSavedSelection:
         loaded = init_lstana.load_saved_selection(MINIMAL_CONFIG, tmp_path / "out")
 
         assert [run.run_number for run in loaded] == [1, 2]
-        assert [run.zenith_bin for run in loaded] == ["zd_0_20", "zd_20_30"]
-        assert loaded.edges == selection.edges
         assert loaded.after_basic_cuts is None
 
     def test_absent_file_loads_nothing(self, tmp_path):
@@ -240,7 +239,7 @@ class TestSavedSelection:
         path = init_lstana.selection_file(MINIMAL_CONFIG, tmp_path / "out")
         path.parent.mkdir(parents=True)
         path.touch()
-        fresh = RunSelection(edges=(0.0, 20.0), selected=pd.DataFrame({"run_number": [], "date": [], "zenith_bin": []}))
+        fresh = RunSelection(selected=pd.DataFrame({"run_number": [], "date": []}))
         recomputed = []
         monkeypatch.setattr(init_lstana, "select_runs", lambda config: recomputed.append(config) or fresh)
         monkeypatch.setattr(init_lstana, "save_datacheck_outputs", lambda *args: None)
@@ -264,9 +263,6 @@ class TestSavedSelection:
                 ra = 83.632
                 dec = 22.0145
                 name = "Crab Nebula"
-
-                [zenith_binning]
-                edges_deg = [0.0, 20.0, 30.0]
 
                 [data_filter.cuts]
                 first_date = 20220101
@@ -361,9 +357,6 @@ class TestMain:
                 dec = 22.0145
                 name = "Crab Nebula"
 
-                [zenith_binning]
-                edges_deg = [0.0, 20.0]
-
                 [data_filter.cuts]
                 first_date = 20220101
                 last_date = 20221231
@@ -373,10 +366,7 @@ class TestMain:
                 """
             )
         )
-        empty_selection = RunSelection(
-            edges=(0.0, 20.0),
-            selected=pd.DataFrame({"run_number": [], "date": [], "zenith_bin": []}),
-        )
+        empty_selection = RunSelection(selected=pd.DataFrame({"run_number": [], "date": []}))
         monkeypatch.setattr(init_lstana, "select_runs", lambda raw_config: empty_selection)
         monkeypatch.setattr(init_lstana, "save_datacheck_outputs", lambda *args: None)
         produced = []
@@ -409,19 +399,13 @@ class TestMain:
                 dec = 22.0145
                 name = "Crab Nebula"
 
-                [zenith_binning]
-                edges_deg = [0.0, 20.0]
-
                 [data_filter.cuts]
                 first_date = 20220101
                 last_date = 20221231
                 """
             )
         )
-        empty_selection = RunSelection(
-            edges=(0.0, 20.0),
-            selected=pd.DataFrame({"run_number": [], "date": [], "zenith_bin": []}),
-        )
+        empty_selection = RunSelection(selected=pd.DataFrame({"run_number": [], "date": []}))
         monkeypatch.setattr(init_lstana, "select_runs", lambda raw_config: empty_selection)
 
         datacheck_calls = []
@@ -454,19 +438,13 @@ class TestMain:
                 dec = 22.0145
                 name = "Crab Nebula"
 
-                [zenith_binning]
-                edges_deg = [0.0, 20.0]
-
                 [data_filter.cuts]
                 first_date = 20220101
                 last_date = 20221231
                 """
             )
         )
-        empty_selection = RunSelection(
-            edges=(0.0, 20.0),
-            selected=pd.DataFrame({"run_number": [], "date": [], "zenith_bin": []}),
-        )
+        empty_selection = RunSelection(selected=pd.DataFrame({"run_number": [], "date": []}))
         monkeypatch.setattr(init_lstana, "select_runs", lambda raw_config: empty_selection)
         monkeypatch.setattr(init_lstana, "save_datacheck_outputs", lambda *args: None)
 

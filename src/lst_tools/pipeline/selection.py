@@ -1,10 +1,8 @@
-"""
-Run selection: the interface every pipeline stage consumes.
+"""Run selection: the interface every pipeline stage consumes.
 
-``RunSelection`` is produced by run selection (datacheck tables + data
-quality cuts + zenith binning) and consumed by every producer. Consumers
-iterate it for typed :class:`SelectedRun` records — the underlying
-DataFrame is storage, not a public API.
+``RunSelection`` combines the selected run table with the bookkeeping needed
+for datacheck outputs. Consumers iterate it for typed :class:`SelectedRun`
+records rather than depending on the DataFrame storage format.
 """
 
 from collections.abc import Iterator
@@ -23,48 +21,24 @@ class SelectedRun:
 
     run_number: int
     date: int
-    zenith_bin: str
 
 
 @dataclass
 class RunSelection:
-    """The selected runs and the bookkeeping behind them.
+    """The selected runs and the bookkeeping behind them."""
 
-    ``selected`` is the run table with the ``zenith_bin`` column (``None``
-    for runs that passed the cuts but got no bin). Consumers should
-    iterate the selection rather than read the frame directly.
-    """
-
-    edges: tuple[float, ...]
     selected: pd.DataFrame
     tables: "DataCheckTables | None" = None
     after_basic_cuts: pd.DataFrame | None = None
     data_filter: "DataFilter | None" = None
 
     def __iter__(self) -> Iterator[SelectedRun]:
-        """The selected runs as typed records, binned runs only."""
-        binned = self.selected[self._is_binned().astype(bool)]
-        for record in binned.to_dict(orient="records"):
+        """Yield every selected run as a typed record."""
+        for record in self.selected.to_dict(orient="records"):
             yield SelectedRun(
                 run_number=int(record["run_number"]),
                 date=int(record["date"]),
-                zenith_bin=record["zenith_bin"],
             )
 
-    @property
-    def unbinned_run_numbers(self) -> list[int]:
-        """Runs that passed the cuts but got no zenith bin."""
-        unbinned = self.selected[~self._is_binned().astype(bool)]
-        return [int(run_number) for run_number in unbinned["run_number"].tolist()]
-
-    def _is_binned(self) -> pd.Series:
-        # ``astype(bool)`` matters for an empty selection: ``map`` then
-        # yields an empty float Series, which pandas would read as column
-        # labels instead of a row mask.
-        return self.selected["zenith_bin"].map(lambda value: isinstance(value, str))
-
     def __repr__(self) -> str:
-        return (
-            f"RunSelection({len(list(self))} binned runs, "
-            f"{len(self.unbinned_run_numbers)} unbinned, edges={self.edges})"
-        )
+        return f"RunSelection({len(self.selected)} runs)"

@@ -5,9 +5,9 @@ A producer knows two operations for its level — ``link`` (place files
 the standard pipeline already produced on the La Palma server) and
 ``build`` (produce the level ourselves) — selected by the config's
 ``source`` mode. The base class owns everything the levels share: the
-server search, newest-version selection, idempotent linking, and the
-unbinned-run warning. A subclass is a declaration: its level, its
-variant rule, its placement rule, its build recipe.
+server search, newest-version selection, and idempotent linking. A subclass
+is a declaration: its level, its variant rule, its placement rule, its build
+recipe.
 """
 
 import os
@@ -117,14 +117,8 @@ class DLProducer(ABC):
         for run in selection:
             result = find_la_palma_files(run.date, run.run_number, self.level)
             for attrs in self._select_variants(result):
-                destination = self.output_dir / self._link_relpath(attrs, run.zenith_bin)
+                destination = self.output_dir / self._link_relpath(attrs)
                 counts[f"{self.level}:{create_safe_link(attrs.path, destination)}"] += 1
-        if selection.unbinned_run_numbers:
-            warnings.warn(
-                f"{self.level}: {len(selection.unbinned_run_numbers)} runs have no zenith bin; skipped",
-                stacklevel=2,
-            )
-            counts[f"{self.level}:unbinned"] += len(selection.unbinned_run_numbers)
         return counts
 
     def _select_variants(self, result: AnySearchResult) -> Sequence[DLAttributes]:
@@ -136,9 +130,9 @@ class DLProducer(ABC):
             return newest
         return [newest]
 
-    def _link_relpath(self, attrs: DLAttributes, zenith_bin: str) -> Path:
-        """Placement below output_dir: <zd_bin>/<file> for DL1/DL2."""
-        return Path(zenith_bin) / attrs.path.name
+    def _link_relpath(self, attrs: DLAttributes) -> Path:
+        """Place DL1/DL2 files directly below output_dir."""
+        return Path(attrs.path.name)
 
 
 class DL1Producer(DLProducer):
@@ -202,49 +196,39 @@ class DL2Producer(DLProducer):
         slurm_kwargs.update(slurm_config.dl2.extra_args)
 
         runs_per_job = slurm_config.dl2.runs_per_job
+        dl1_files = sorted(self.dl1_directory.glob("dl1_*.h5"))
+        pending = [
+            dl1_file
+            for dl1_file in dl1_files
+            if overwrite or not (self.output_dir / dl1_file.name.replace("dl1", "dl2", 1)).exists()
+        ]
+        counts["dl2:existing"] += len(dl1_files) - len(pending)
 
-        for dl1_dir in sorted(self.dl1_directory.iterdir()):
-            if not dl1_dir.is_dir():
-                continue
-            output_dir = self.output_dir / dl1_dir.name
-            dl1_files = sorted(dl1_dir.glob("dl1_*.h5"))
-            pending = [
-                dl1_file
-                for dl1_file in dl1_files
-                if overwrite or not (output_dir / dl1_file.name.replace("dl1", "dl2", 1)).exists()
-            ]
-            counts["dl2:existing"] += len(dl1_files) - len(pending)
-            if not pending:
-                continue
+        for batch_idx, i in enumerate(range(0, len(pending), runs_per_job), start=1):
+            chunk = pending[i : i + runs_per_job]
+            slurm = Slurm(**{**slurm_kwargs, "job_name": f"lst_dl2_{batch_idx}"})
+            slurm.set_shell("/bin/bash")
+            if slurm_config.env_setup:
+                slurm.add_cmd(slurm_config.env_setup)
 
-            batch_idx = 1
-            for i in range(0, len(pending), runs_per_job):
-                chunk = pending[i : i + runs_per_job]
-                job_name = f"lst_dl2_{dl1_dir.name}_{batch_idx}"
-                batch_idx += 1
-                slurm = Slurm(**{**slurm_kwargs, "job_name": job_name})
-                slurm.set_shell("/bin/bash")
-                if slurm_config.env_setup:
-                    slurm.add_cmd(slurm_config.env_setup)
+            files_arg = " ".join(shlex.quote(str(file)) for file in chunk)
+            cmd = (
+                f"{self.worker_command} --input {files_arg} "
+                f"--output-dir {shlex.quote(str(self.output_dir))} "
+                f"--model-dir {shlex.quote(rf_template)}"
+            )
+            if overwrite:
+                cmd += " --overwrite"
+            slurm.add_cmd(cmd)
 
-                files_arg = " ".join(shlex.quote(str(file)) for file in chunk)
-                cmd = (
-                    f"{self.worker_command} --input {files_arg} "
-                    f"--output-dir {shlex.quote(str(output_dir))} "
-                    f"--model-dir {shlex.quote(rf_template)}"
-                )
-                if overwrite:
-                    cmd += " --overwrite"
-                slurm.add_cmd(cmd)
-
-                slurm.sbatch()
-                counts["dl2:slurm_jobs"] += 1
-                counts["dl2:slurm_runs"] += len(chunk)
+            slurm.sbatch()
+            counts["dl2:slurm_jobs"] += 1
+            counts["dl2:slurm_runs"] += len(chunk)
 
         return counts
 
     def build(self, selection: RunSelection) -> Counter:
-        """Reconstruct DL2 from the linked DL1 files, per zenith bin.
+        """Reconstruct DL2 from the linked DL1 files.
 
         Runs whose DL2 already exists are kept unless ``overwrite = true``.
 
@@ -265,27 +249,23 @@ class DL2Producer(DLProducer):
             warnings.warn(f"dl2: no DL1 directory at {self.dl1_directory}; skipping", stacklevel=2)
             return counts
 
-        for dl1_dir in sorted(self.dl1_directory.iterdir()):
-            if not dl1_dir.is_dir():
-                continue
-            output_dir = self.output_dir / dl1_dir.name
-            dl1_files = sorted(dl1_dir.glob("dl1_*.h5"))
-            pending = [
-                dl1_file
-                for dl1_file in dl1_files
-                if overwrite or not (output_dir / dl1_file.name.replace("dl1", "dl2", 1)).exists()
-            ]
-            counts["dl2:existing"] += len(dl1_files) - len(pending)
-            if not pending:
-                continue
+        dl1_files = sorted(self.dl1_directory.glob("dl1_*.h5"))
+        pending = [
+            dl1_file
+            for dl1_file in dl1_files
+            if overwrite or not (self.output_dir / dl1_file.name.replace("dl1", "dl2", 1)).exists()
+        ]
+        counts["dl2:existing"] += len(dl1_files) - len(pending)
+        if not pending:
+            return counts
 
-            reconstruct_dl1_to_dl2(pending, output_dir, rf_template, overwrite=overwrite)
-            for dl1_file in pending:
-                if (output_dir / dl1_file.name.replace("dl1", "dl2", 1)).exists():
-                    counts["dl2:built"] += 1
-                else:
-                    warnings.warn(f"DL1ToDL2Tool did not create the DL2 file for {dl1_file}", stacklevel=2)
-                    counts["dl2:failed"] += 1
+        reconstruct_dl1_to_dl2(pending, self.output_dir, rf_template, overwrite=overwrite)
+        for dl1_file in pending:
+            if (self.output_dir / dl1_file.name.replace("dl1", "dl2", 1)).exists():
+                counts["dl2:built"] += 1
+            else:
+                warnings.warn(f"DL1ToDL2Tool did not create the DL2 file for {dl1_file}", stacklevel=2)
+                counts["dl2:failed"] += 1
 
         return counts
 
@@ -319,13 +299,12 @@ class DL3Producer(DLProducer):
             variants = [variant for variant in variants if variant.irf_type == self.config.link.irf_type]
         return variants
 
-    def _link_relpath(self, attrs: DLAttributes, zenith_bin: str) -> Path:
-        """The variant tree mirrors the server's own path order with the
-        zenith bin prepended: <zd_bin>/<irf_type>/<mc_type>/<cut_label>/<file>."""
+    def _link_relpath(self, attrs: DLAttributes) -> Path:
+        """Mirror the server's variant tree below output_dir."""
         if not isinstance(attrs, DL3Attributes):
             raise TypeError(f"DL3 linking expects DL3 attributes, got {type(attrs).__name__}")
         cut_label = f"gheff{attrs.gh_eff}_thetacont{attrs.theta_containment}"
-        return Path(zenith_bin) / attrs.irf_type / attrs.mc_data_type / cut_label / attrs.path.name
+        return Path(attrs.irf_type) / attrs.mc_data_type / cut_label / attrs.path.name
 
     def build(self, selection: RunSelection) -> Counter:
         return self.prepare_build(selection).run()

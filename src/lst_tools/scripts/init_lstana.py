@@ -26,12 +26,7 @@ else:  # pragma: no cover - Python 3.10 compatibility
     import tomli as tomllib
 
 from lst_tools.catalog import select_runs_away_from_sources
-from lst_tools.datacheck import (
-    DataCheckTables,
-    DataFilter,
-    assign_zenith_bins,
-    validate_zenith_bin_edges,
-)
+from lst_tools.datacheck import DataCheckTables, DataFilter
 from lst_tools.finder import filter_date
 from lst_tools.helper import glob_files
 from lst_tools.pipeline import (
@@ -76,7 +71,7 @@ def load_datacheck_tables(raw_config: dict) -> DataCheckTables:
 
 
 def select_runs(raw_config: dict) -> RunSelection:
-    """Stages 1-2 input: apply the data-quality cuts and assign zenith bins.
+    """Stages 1-2 input: apply the configured data-quality cuts.
 
     With ``[data_filter] away_source = true`` the target-angle cuts are
     disabled and runs pointed near any catalog source are rejected instead,
@@ -84,11 +79,8 @@ def select_runs(raw_config: dict) -> RunSelection:
     workspace.
     """
     source_config = SourceConfig.parse(raw_config.get("source"))
-    edges = validate_zenith_bin_edges(raw_config["zenith_binning"]["edges_deg"])
     data_filter_config = raw_config.get("data_filter", {})
     cuts = dict(data_filter_config.get("cuts", {}))
-    cuts["min_zenith_angle"] = edges[0]
-    cuts["max_zenith_angle"] = edges[-1]
     away_source = bool(data_filter_config.get("away_source", False))
     if away_source:
         # A pointing away from every catalog source cannot be inside the
@@ -113,8 +105,7 @@ def select_runs(raw_config: dict) -> RunSelection:
         )
 
     return RunSelection(
-        edges=edges,
-        selected=assign_zenith_bins(selected, edges),
+        selected=selected,
         tables=tables,
         after_basic_cuts=after_basic_cuts,
         data_filter=data_filter,
@@ -136,21 +127,16 @@ def load_saved_selection(raw_config: dict, output_root: Path) -> RunSelection | 
     """The selection an earlier run saved, or ``None`` when there is none.
 
     The file holds the already-selected runs, so neither the nightly
-    datacheck files nor the cuts have to be applied again; only the zenith
-    bins are assigned, from the configured edges. ``after_basic_cuts`` stays
-    ``None`` — the pre-cut table is not saved — so the advanced-cut plots
-    are only possible for a freshly computed selection.
+    datacheck files nor the cuts have to be applied again.
+    ``after_basic_cuts`` stays ``None`` — the pre-cut table is not saved —
+    so the advanced-cut plots are only possible for a freshly computed
+    selection.
     """
     path = selection_file(raw_config, output_root)
     if not path.is_file():
         return None
-    edges = validate_zenith_bin_edges(raw_config["zenith_binning"]["edges_deg"])
     tables = DataCheckTables.from_files([str(path)])
-    return RunSelection(
-        edges=edges,
-        selected=assign_zenith_bins(tables.statistics, edges),
-        tables=tables,
-    )
+    return RunSelection(selected=tables.statistics, tables=tables)
 
 
 def save_datacheck_outputs(selection: RunSelection, raw_config: dict, output_dir: Path) -> None:
