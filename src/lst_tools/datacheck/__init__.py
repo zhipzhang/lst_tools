@@ -1,9 +1,9 @@
 from .datacheck import DataCheckTables
-from .datafilter import DataFilter
+from .run_quality_filter import RunQualityFilter
 
 __all__ = [
     "DataCheckTables",
-    "DataFilter",
+    "RunQualityFilter",
     "plot_advanced_distributions",
 ]
 

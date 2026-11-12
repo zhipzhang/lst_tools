@@ -48,7 +48,7 @@ def test_select_region():
 def test_select_runs_away_from_sources_only_applies_catalog_separation():
     statistics = pd.DataFrame(
         {
-            "run_number": [1, 2, 3, 4],
+            "runnumber": [1, 2, 3, 4],
             "mean_ra": [1.0, 3.0, 12.0, 15.0],
             "mean_dec": [0.0, 0.0, 0.0, 0.0],
         }
@@ -74,8 +74,8 @@ def test_select_runs_away_from_sources_only_applies_catalog_separation():
         extension_factor=2.5,
     )
 
-    assert selected["run_number"].tolist() == [2, 4]
-    assert statistics["run_number"].tolist() == [1, 2, 3, 4]
+    assert selected["runnumber"].tolist() == [2, 4]
+    assert statistics["runnumber"].tolist() == [1, 2, 3, 4]
 
 
 def test_catalog_styles_cover_known_catalogs():

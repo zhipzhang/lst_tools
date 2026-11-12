@@ -97,8 +97,8 @@ def patch_finder(monkeypatch, results_by_key: dict):
     monkeypatch.setattr(producers_module, "find_la_palma_files", fake_find)
 
 
-RUN_10623 = {"run_number": 10623, "date": 20220426}
-RUN_10624 = {"run_number": 10624, "date": 20220426}
+RUN_10623 = {"runnumber": 10623, "date": 20220426}
+RUN_10624 = {"runnumber": 10624, "date": 20220426}
 
 
 class TestDL1Producer:
@@ -436,7 +436,7 @@ class TestDL2Producer:
 
 
 
-DL3_RUN = {"run_number": 14083, "date": 20230821}
+DL3_RUN = {"runnumber": 14083, "date": 20230821}
 
 # Server paths as the finder would return them; only the parsed attributes matter here.
 DL3_FULL = "/fefs/onsite/data/lst-pipe/LSTN-01/DL3/20230821/v0.11/tailcut1005/nsb_tuning_0.38/0.11.0/src_indep/full-enclosure/ring-wobble/gheff0.7_thetacont0.7/irf_interp/dl3_LST-1.Run14083.fits"

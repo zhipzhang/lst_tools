@@ -1,3 +1,10 @@
+"""Load LST-1 DL1 DataCheck HDF5 files and derive per-run statistics.
+
+This module targets the LST-1 DL1 DataCheck layout with the ``flatfield``,
+``cosmics_intensity_spectrum``, and ``runsummary`` tables. Other instruments
+or DataCheck formats require a different loader and statistics specification.
+"""
+
 import logging
 from collections.abc import Iterable
 from dataclasses import dataclass, replace
@@ -7,20 +14,22 @@ from pathlib import Path
 import numpy as np
 import pandas as pd
 
-from .utils import azimuth_angle_mean, find_mode
+from .utils import circular_mean_degrees, sliding_window_mode
 
 logger = logging.getLogger(__name__)
 
+# Public per-run statistics schema consumed by RunQualityFilter. Keys are derived
+# column names; values identify the source column and aggregation for each input table.
 DEFAULT_SPEC = {
     "cosmics_intensity_spectrum": {
         "n_subruns": ("runnumber", "size"),
         "date": ("yyyymmdd", "first"),
         "mean_R422": ("ZD_corrected_cosmics_rate_at_422_pe", "mean"),
         "std_R422": ("ZD_corrected_cosmics_rate_at_422_pe", "std"),
-        "mode_R422": ("ZD_corrected_cosmics_rate_at_422_pe", lambda x: find_mode(x)),
+        "mode_R422": ("ZD_corrected_cosmics_rate_at_422_pe", lambda x: sliding_window_mode(x)),
         "fraction_around_mode_R422": (
             "ZD_corrected_cosmics_rate_at_422_pe",
-            lambda x: find_mode(x, return_fraction=True),
+            lambda x: sliding_window_mode(x, return_fraction=True),
         ),
         "mean_intensity_at_reference_rate": ("intensity_at_reference_rate", "mean"),
         "std_intensity_at_reference_rate": ("intensity_at_reference_rate", "std"),
@@ -31,7 +40,7 @@ DEFAULT_SPEC = {
         "mean_fit_p_value": ("intensity_spectrum_fit_p_value", "mean"),
         "mean_intensity_threshold": ("ZD_corrected_intensity_at_half_peak_rate", "mean"),
         "std_intensity_threshold": ("ZD_corrected_intensity_at_half_peak_rate", "std"),
-        "mean_ra": ("ra_tel", lambda x: azimuth_angle_mean(x)),
+        "mean_ra": ("ra_tel", lambda x: circular_mean_degrees(x)),
         "mean_dec": ("dec_tel", "mean"),
         "pointing_dec_std": ("dec_tel", "std"),
         "mean_cos_zd": ("cos_zenith", "mean"),
@@ -57,7 +66,9 @@ class DataCheckTables:
 
         Each file is opened once, and the tables ``flatfield``,
         ``cosmics_intensity_spectrum``, and ``runsummary`` are read and
-        concatenated across files.
+        concatenated across files. Files missing any required table are
+        skipped with a warning so that incomplete nightly products do not
+        prevent run discovery from the remaining files.
 
         Parameters
         ----------
@@ -69,8 +80,10 @@ class DataCheckTables:
         DataCheckTables
             A dataclass instance holding the concatenated DataFrames.
         """
+        # The dataclass fields intentionally define the LST-1 table schema used by
+        # loading, saving, and run selection. Revisit if another DataCheck layout is supported.
         table_names = list(cls.__annotations__.keys())
-        table_data: dict[str, list[pd.HDFStore]] = {name: [] for name in table_names}
+        table_data: dict[str, list[pd.DataFrame]] = {name: [] for name in table_names}
 
         for file in files:
             with pd.HDFStore(file, mode="r") as store:
@@ -89,19 +102,24 @@ class DataCheckTables:
         return cls(**{name: pd.concat(dataframes, ignore_index=True) for name, dataframes in table_data.items()})
 
     def get_statistics(self, spec: dict) -> pd.DataFrame:
+        """Aggregate tables by run, preserving runs missing from any one table."""
         table_statistics = []
 
         for table_name, table_spec in spec.items():
+            if table_name not in self.__dataclass_fields__:
+                raise ValueError(f"Unknown DataCheck table in statistics spec: {table_name!r}")
             table = getattr(self, table_name)
+            required_columns = {column for column, _ in table_spec.values()} | {"runnumber"}
+            missing_columns = required_columns.difference(table.columns)
+            if missing_columns:
+                raise ValueError(
+                    f"Statistics spec for {table_name!r} references missing columns: {sorted(missing_columns)}"
+                )
             table_statistics.append(table.groupby("runnumber").agg(**table_spec))
 
-        return (
-            pd.concat(table_statistics, axis="columns", join="outer")
-            .sort_index()
-            .rename_axis("run_number")
-            .reset_index()
-        )
+        return pd.concat(table_statistics, axis="columns", join="outer").sort_index().reset_index()
 
+    # Input tables are treated as immutable after construction, so one cached result is enough.
     @cached_property
     def statistics(self) -> pd.DataFrame:
         """Return and cache the run-wise statistics defined by :data:`DEFAULT_SPEC`."""
@@ -176,7 +194,8 @@ class DataCheckTables:
         for field_name in self.__dataclass_fields__:
             val = getattr(self, field_name)
             if isinstance(val, pd.DataFrame):
-                # Filter and reset the index
+                # Keep runnumber as a data column and discard only the old positional index,
+                # giving each filtered table a fresh RangeIndex without an "index" column.
                 filtered_fields[field_name] = val.loc[val["runnumber"].isin(runs_set)].reset_index(drop=True)  # pyright: ignore
             else:
                 filtered_fields[field_name] = val

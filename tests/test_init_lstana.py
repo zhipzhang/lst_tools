@@ -56,7 +56,7 @@ class TestLoadDatacheckTables:
             init_lstana.load_datacheck_tables(MINIMAL_CONFIG)
 
 
-class FakeDataFilter:
+class FakeRunQualityFilter:
     """Records its cuts and passes statistics through."""
 
     def __init__(self, **kwargs):
@@ -72,7 +72,7 @@ class FakeDataFilter:
 def make_stats_frame():
     return pd.DataFrame(
         {
-            "run_number": [1, 2],
+            "runnumber": [1, 2],
             "date": [20220426, 20220427],
             "mean_cos_zd": [np.cos(np.radians(15.0)), np.cos(np.radians(25.0))],
         }
@@ -83,7 +83,7 @@ class TestSelectRuns:
     def test_returns_all_selected_runs_and_bookkeeping(self, monkeypatch):
         tables = SimpleNamespace(statistics=make_stats_frame())
         monkeypatch.setattr(init_lstana, "load_datacheck_tables", lambda config: tables)
-        monkeypatch.setattr(init_lstana, "DataFilter", FakeDataFilter)
+        monkeypatch.setattr(init_lstana, "RunQualityFilter", FakeRunQualityFilter)
 
         selection = init_lstana.select_runs(MINIMAL_CONFIG)
 
@@ -97,7 +97,7 @@ class TestSelectRuns:
         tables = SimpleNamespace(statistics=make_stats_frame())
         monkeypatch.setattr(init_lstana, "load_datacheck_tables", lambda config: tables)
 
-        class CountingFilter(FakeDataFilter):
+        class CountingFilter(FakeRunQualityFilter):
             def __init__(self, **kwargs):
                 super().__init__(**kwargs)
                 self.advanced_calls = 0
@@ -106,7 +106,7 @@ class TestSelectRuns:
                 self.advanced_calls += 1
                 return statistics
 
-        monkeypatch.setattr(init_lstana, "DataFilter", CountingFilter)
+        monkeypatch.setattr(init_lstana, "RunQualityFilter", CountingFilter)
         selection = init_lstana.select_runs({**MINIMAL_CONFIG, "data_filter": {"with_advanced": True, "cuts": {}}})
 
         assert selection.data_filter.advanced_calls == 1
@@ -116,7 +116,7 @@ def make_basic_stats_frame():
     """Two runs pointing (RA 10, dec 0) and (RA 30, dec 0), both in the bins."""
     return pd.DataFrame(
         {
-            "run_number": [1, 2],
+            "runnumber": [1, 2],
             "n_subruns": [2, 2],
             "date": [20240101, 20240101],
             "n_flatfield": [1, 1],
@@ -142,7 +142,7 @@ class TestAwaySourceSelection:
         # Run 1 is far from the target, so it only survives because the
         # 0.3–0.5 degree target-angle cut was disabled; run 2 points at the
         # catalog source and is rejected.
-        assert selection.selected["run_number"].tolist() == [1]
+        assert selection.selected["runnumber"].tolist() == [1]
         assert selection.data_filter.min_angle_to_source == 0.0
         assert selection.data_filter.max_angle_to_source == 180.0
 
@@ -152,7 +152,7 @@ class TestAwaySourceSelection:
 
         selection = init_lstana.select_runs(MINIMAL_CONFIG)
 
-        assert selection.selected["run_number"].tolist() == []
+        assert selection.selected["runnumber"].tolist() == []
         assert selection.data_filter.max_angle_to_source == 0.5
 
     @pytest.mark.parametrize(
@@ -167,7 +167,7 @@ class TestAwaySourceSelection:
     ):
         tables = SimpleNamespace(statistics=make_stats_frame())
         monkeypatch.setattr(init_lstana, "load_datacheck_tables", lambda config: tables)
-        monkeypatch.setattr(init_lstana, "DataFilter", FakeDataFilter)
+        monkeypatch.setattr(init_lstana, "RunQualityFilter", FakeRunQualityFilter)
         monkeypatch.setattr(lst_tools.catalog, "load_tev_sources", lambda: ())
         captured = {}
 
@@ -219,7 +219,7 @@ def make_datacheck_tables():
 class TestSavedSelection:
     def test_saved_outputs_reload_as_the_same_selection(self, tmp_path, monkeypatch):
         selection = RunSelection(
-            selected=pd.DataFrame({"run_number": [1, 2], "date": [20240101, 20240101]}),
+            selected=pd.DataFrame({"runnumber": [1, 2], "date": [20240101, 20240101]}),
             tables=make_datacheck_tables(),
             after_basic_cuts=pd.DataFrame(),
         )
@@ -239,7 +239,7 @@ class TestSavedSelection:
         path = init_lstana.selection_file(MINIMAL_CONFIG, tmp_path / "out")
         path.parent.mkdir(parents=True)
         path.touch()
-        fresh = RunSelection(selected=pd.DataFrame({"run_number": [], "date": []}))
+        fresh = RunSelection(selected=pd.DataFrame({"runnumber": [], "date": []}))
         recomputed = []
         monkeypatch.setattr(init_lstana, "select_runs", lambda config: recomputed.append(config) or fresh)
         monkeypatch.setattr(init_lstana, "save_datacheck_outputs", lambda *args: None)
@@ -366,7 +366,7 @@ class TestMain:
                 """
             )
         )
-        empty_selection = RunSelection(selected=pd.DataFrame({"run_number": [], "date": []}))
+        empty_selection = RunSelection(selected=pd.DataFrame({"runnumber": [], "date": []}))
         monkeypatch.setattr(init_lstana, "select_runs", lambda raw_config: empty_selection)
         monkeypatch.setattr(init_lstana, "save_datacheck_outputs", lambda *args: None)
         produced = []
@@ -405,7 +405,7 @@ class TestMain:
                 """
             )
         )
-        empty_selection = RunSelection(selected=pd.DataFrame({"run_number": [], "date": []}))
+        empty_selection = RunSelection(selected=pd.DataFrame({"runnumber": [], "date": []}))
         monkeypatch.setattr(init_lstana, "select_runs", lambda raw_config: empty_selection)
 
         datacheck_calls = []
@@ -444,7 +444,7 @@ class TestMain:
                 """
             )
         )
-        empty_selection = RunSelection(selected=pd.DataFrame({"run_number": [], "date": []}))
+        empty_selection = RunSelection(selected=pd.DataFrame({"runnumber": [], "date": []}))
         monkeypatch.setattr(init_lstana, "select_runs", lambda raw_config: empty_selection)
         monkeypatch.setattr(init_lstana, "save_datacheck_outputs", lambda *args: None)
 

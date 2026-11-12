@@ -100,7 +100,7 @@ def test_build_reuses_products_with_real_processes(tmp_path):
         output.parent.mkdir(parents=True)
         fits.PrimaryHDU().writeto(output)
 
-    selection = RunSelection(pd.DataFrame([{"run_number": 10623, "date": 20220426}]))
+    selection = RunSelection(pd.DataFrame([{"runnumber": 10623, "date": 20220426}]))
     producer = DL3Producer(
         DL3ProducerConfig(enabled=True, source="build", build=DL3BuildOptions(
             reductions=reductions, mc_dl2_directory=str(tmp_path / "mc_nsb_$NSB_LEVEL")

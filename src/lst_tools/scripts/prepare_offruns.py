@@ -13,7 +13,7 @@ from lst_tools.catalog import (
     CatalogSource,
     select_runs_away_from_sources,
 )
-from lst_tools.datacheck import DataCheckTables, DataFilter
+from lst_tools.datacheck import DataCheckTables, RunQualityFilter
 from lst_tools.helper import find_lst_data_path
 from lst_tools.pipeline import create_safe_link
 from lst_tools.scripts.init_lstana import load_config, load_datacheck_tables
@@ -21,7 +21,7 @@ from lst_tools.scripts.init_lstana import load_config, load_datacheck_tables
 
 def select_offruns(
     statistics: pd.DataFrame,
-    data_filter: DataFilter,
+    data_filter: RunQualityFilter,
     sources: Iterable[CatalogSource],
     *,
     min_separation: u.Quantity = 3 * u.deg,
@@ -39,7 +39,7 @@ def select_offruns(
         max_angle_to_source=180,
     )
     quality_run_numbers = quality_filter(statistics, advanced_cuts=True)
-    quality_runs = statistics.loc[statistics["run_number"].isin(quality_run_numbers)]
+    quality_runs = statistics.loc[statistics["runnumber"].isin(quality_run_numbers)]
 
     return select_runs_away_from_sources(
         quality_runs,
@@ -64,7 +64,7 @@ def create_data_links(
     counts = Counter()
 
     for row in selected_runs.itertuples(index=False):
-        source_name = path_finder(int(row.date), int(row.run_number), level=level)
+        source_name = path_finder(int(row.date), int(row.runnumber), level=level)
         if not source_name:
             counts[f"{level}:missing"] += 1
             continue
@@ -109,7 +109,7 @@ def save_datacheck_file(
     """Save the selected runs as one DataCheck HDF5 file."""
     output_dir.mkdir(parents=True, exist_ok=True)
     output_file = output_dir / "DL1_datacheck_offruns.h5"
-    tables.select_runs(selected_runs["run_number"].tolist()).save_to_h5file(
+    tables.select_runs(selected_runs["runnumber"].tolist()).save_to_h5file(
         output_file,
         overwrite=True,
     )
@@ -159,7 +159,7 @@ def main() -> None:
     config = load_config(config_file)
     source_config = config["source"]
     cuts = dict(config.get("data_filter", {}).get("cuts", {}))
-    data_filter = DataFilter(
+    data_filter = RunQualityFilter(
         source_ra=source_config["ra"],
         source_dec=source_config["dec"],
         **cuts,

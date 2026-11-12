@@ -9,7 +9,7 @@ from lst_tools.scripts import summarize_lstana
 
 
 def _patch_readers(monkeypatch):
-    selected = pd.DataFrame({"run_number": [13647], "date": [20230709]})
+    selected = pd.DataFrame({"runnumber": [13647], "date": [20230709]})
     monkeypatch.setattr(
         summarize_lstana.DataCheckTables,
         "from_files",

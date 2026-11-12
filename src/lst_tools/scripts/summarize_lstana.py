@@ -53,7 +53,7 @@ def summarize_runs(
         search_dl3_dir = dl3_dir / reduction
 
     for run in selected.to_dict(orient="records"):
-        run_number = int(run["run_number"])
+        run_number = int(run["runnumber"])
         dl3_file = _find_run_file(search_dl3_dir, "dl3", run_number)
         if dl3_file is None and search_dl3_dir != dl3_dir:
             dl3_file = _find_run_file(dl3_dir, "dl3", run_number)

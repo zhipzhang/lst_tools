@@ -11,8 +11,8 @@ def make_selection(rows: list[dict]) -> RunSelection:
 
 
 RUNS = [
-    {"run_number": 10623, "date": 20220426},
-    {"run_number": 10624, "date": 20220426},
+    {"runnumber": 10623, "date": 20220426},
+    {"runnumber": 10624, "date": 20220426},
 ]
 
 
@@ -39,7 +39,7 @@ def test_repr_summarizes_run_count():
 
 
 def test_empty_selection_iterates_and_reprs():
-    selection = RunSelection(selected=pd.DataFrame({"run_number": [], "date": []}))
+    selection = RunSelection(selected=pd.DataFrame({"runnumber": [], "date": []}))
 
     assert list(selection) == []
     assert repr(selection) == "RunSelection(0 runs)"

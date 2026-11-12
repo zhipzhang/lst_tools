@@ -4,7 +4,7 @@ import pytest
 from astropy.coordinates import SkyCoord
 
 from lst_tools.catalog import CatalogSource
-from lst_tools.datacheck import DataCheckTables, DataFilter
+from lst_tools.datacheck import DataCheckTables, RunQualityFilter
 from lst_tools.scripts.prepare_offruns import (
     build_parser,
     create_dl1_links,
@@ -17,7 +17,7 @@ from lst_tools.scripts.prepare_offruns import (
 def test_select_offruns_applies_advanced_cuts_but_not_source_angle_cut():
     statistics = pd.DataFrame(
         {
-            "run_number": [1, 2, 3],
+            "runnumber": [1, 2, 3],
             "n_subruns": [2, 2, 2],
             "date": [20240101, 20240101, 20240101],
             "n_flatfield": [1, 1, 1],
@@ -35,7 +35,7 @@ def test_select_offruns_applies_advanced_cuts_but_not_source_angle_cut():
             "fraction_around_mode_R422": [0.9, 0.9, 0.9],
         }
     )
-    data_filter = DataFilter(source_ra=0, source_dec=0)
+    data_filter = RunQualityFilter(source_ra=0, source_dec=0)
     sources = (
         CatalogSource(
             name="near-run-3",
@@ -51,10 +51,10 @@ def test_select_offruns_applies_advanced_cuts_but_not_source_angle_cut():
         min_separation=2 * u.deg,
     )
 
-    # Run 1 is far outside DataFilter's normal 0.3–0.5 degree source-angle
+    # Run 1 is far outside RunQualityFilter's normal 0.3–0.5 degree source-angle
     # range but remains selected. Run 2 fails an advanced cut; run 3 is too
     # close to the supplied catalog source.
-    assert selected["run_number"].tolist() == [1]
+    assert selected["runnumber"].tolist() == [1]
 
 
 @pytest.mark.parametrize(
@@ -65,7 +65,7 @@ def test_create_data_links_is_idempotent(tmp_path, level, create_links):
     source = tmp_path / "source" / f"{level}_LST-1.Run00001.h5"
     source.parent.mkdir()
     source.touch()
-    selected = pd.DataFrame({"run_number": [1], "date": [20240101]})
+    selected = pd.DataFrame({"runnumber": [1], "date": [20240101]})
 
     def find_path(date, run_number, level):
         assert (date, run_number, level) == (20240101, 1, source.name[:3])
@@ -103,7 +103,7 @@ def test_save_datacheck_file_contains_only_selected_runs(tmp_path):
         cosmics_intensity_spectrum=pd.DataFrame({"runnumber": [1, 2]}),
         runsummary=pd.DataFrame({"runnumber": [1, 2]}),
     )
-    selected = pd.DataFrame({"run_number": [2]})
+    selected = pd.DataFrame({"runnumber": [2]})
 
     output_file = save_datacheck_file(tables, selected, tmp_path / "data_check")
     loaded = DataCheckTables.from_files([str(output_file)])

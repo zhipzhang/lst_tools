@@ -26,7 +26,7 @@ else:  # pragma: no cover - Python 3.10 compatibility
     import tomli as tomllib
 
 from lst_tools.catalog import select_runs_away_from_sources
-from lst_tools.datacheck import DataCheckTables, DataFilter
+from lst_tools.datacheck import DataCheckTables, RunQualityFilter
 from lst_tools.finder import filter_date
 from lst_tools.helper import glob_files
 from lst_tools.pipeline import (
@@ -87,7 +87,7 @@ def select_runs(raw_config: dict) -> RunSelection:
         # target-angle range, and the target itself is in the catalogs.
         cuts["min_angle_to_source"] = 0.0
         cuts["max_angle_to_source"] = 180.0
-    data_filter = DataFilter(source_ra=source_config.ra, source_dec=source_config.dec, **cuts)
+    data_filter = RunQualityFilter(source_ra=source_config.ra, source_dec=source_config.dec, **cuts)
 
     tables = load_datacheck_tables(raw_config)
     after_basic_cuts = data_filter.apply_basic_cuts(tables.statistics)
@@ -149,7 +149,7 @@ def save_datacheck_outputs(selection: RunSelection, raw_config: dict, output_dir
     if selection.tables is None:
         raise ValueError("save_datacheck_outputs requires the datacheck tables from select_runs")
 
-    run_numbers = selection.selected["run_number"].tolist()
+    run_numbers = selection.selected["runnumber"].tolist()
     selection.tables.select_runs(run_numbers).save_to_h5file(
         output_dir / f"data_check_{selection_stem(raw_config)}.h5",
         overwrite=True,

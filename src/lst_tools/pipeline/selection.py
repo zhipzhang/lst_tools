@@ -12,7 +12,7 @@ from typing import TYPE_CHECKING
 import pandas as pd
 
 if TYPE_CHECKING:
-    from lst_tools.datacheck import DataCheckTables, DataFilter
+    from lst_tools.datacheck import DataCheckTables, RunQualityFilter
 
 
 @dataclass(frozen=True)
@@ -30,13 +30,13 @@ class RunSelection:
     selected: pd.DataFrame
     tables: "DataCheckTables | None" = None
     after_basic_cuts: pd.DataFrame | None = None
-    data_filter: "DataFilter | None" = None
+    data_filter: "RunQualityFilter | None" = None
 
     def __iter__(self) -> Iterator[SelectedRun]:
         """Yield every selected run as a typed record."""
         for record in self.selected.to_dict(orient="records"):
             yield SelectedRun(
-                run_number=int(record["run_number"]),
+                run_number=int(record["runnumber"]),
                 date=int(record["date"]),
             )
 
