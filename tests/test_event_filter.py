@@ -87,42 +87,11 @@ def test_fixed_mode_applies_quality_gammaness_intensity_and_leakage_cuts(events)
     assert result["event_id"].tolist() == [0, 5, 8]
 
 
-def test_quantile_mode_keeps_about_the_efficiency_fraction():
-    rng = np.random.default_rng(42)
-    n = 50000
-    events = pd.DataFrame(
-        {
-            "reco_energy": rng.uniform(0.05, 5.0, n),
-            "gh_score": rng.uniform(0, 1, n),
-            "intensity": np.full(n, 100.0),
-            "leakage_intensity_width_2": np.full(n, 0.1),
-            **quality_filter_columns(n),
-        }
-    )
+def test_quantile_mode_rejects_direct_filtering(events):
     event_filter = EventFilter.from_cuts(50, 0.2, gh_efficiency=0.7)
 
-    result = event_filter(events)
-
-    assert len(result) / len(events) == pytest.approx(0.7, abs=0.05)
-
-
-def test_quantile_mode_does_not_mutate_the_callers_frame():
-    rng = np.random.default_rng(7)
-    n = 50000
-    events = pd.DataFrame(
-        {
-            "reco_energy": rng.uniform(0.05, 5.0, n),
-            "gh_score": rng.uniform(0, 1, n),
-            "intensity": np.full(n, 100.0),
-            "leakage_intensity_width_2": np.full(n, 0.1),
-            **quality_filter_columns(n),
-        }
-    )
-    columns_before = events.columns.tolist()
-
-    EventFilter.from_cuts(50, 0.2, gh_efficiency=0.7)(events)
-
-    assert events.columns.tolist() == columns_before
+    with pytest.raises(ValueError, match="direct filtering requires gh_cut"):
+        event_filter(events)
 
 
 def test_to_lstchain_config_serializes_the_wrapped_components():

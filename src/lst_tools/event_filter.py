@@ -50,10 +50,10 @@ class EventFilter:
     - ``DL3Cuts``: ``min_gh_cut 0.1``, ``max_gh_cut 0.98``,
       ``min_event_p_en_bin 100`` (used to derive the quantile cuts)
 
-    Filters frames carrying a ``gh_score`` column (present on all
-    ``LSTDL2`` tables) and, in energy-dependent mode, ``reco_energy`` in
-    TeV. Note that lstchain's fill logic requires at least one energy bin
-    with ``min_event_p_en_bin`` events in energy-dependent mode.
+    Directly filters frames carrying a ``gh_score`` column (present on all
+    ``LSTDL2`` tables). Direct filtering requires ``global_gh_cut``;
+    ``gh_efficiency`` is reserved for IRF generation and DL3 reduction, where
+    lstchain derives the cuts from gamma simulation and stores them in the IRF.
     """
 
     def __init__(
@@ -105,9 +105,9 @@ class EventFilter:
         """Create a filter from scalar cut values.
 
         Exactly one gammaness mode must be given: ``gh_cut`` for a fixed
-        threshold, or ``gh_efficiency`` for per-energy-bin quantile cuts
-        derived from the filtered data on ``energy_bins`` (defaults to the
-        ``DataBinning`` reco-energy binning, in TeV).
+        threshold, or ``gh_efficiency`` for per-energy-bin quantile cuts during
+        IRF generation and DL3 reduction. Only ``gh_cut`` can be used when
+        calling the filter directly on a dataframe.
         """
         if (gh_cut is None) == (gh_efficiency is None):
             raise ValueError("exactly one of gh_cut and gh_efficiency must be set")
@@ -136,13 +136,12 @@ class EventFilter:
         )
 
     def __call__(self, data: pd.DataFrame) -> pd.DataFrame:
-        """Return events passing the configured cuts."""
-        selected = self.event_selector.filter_cut(data).copy()
-        if not self.energy_dependent_gh:
-            return self.dl3_cuts.apply_global_gh_cut(selected)
+        """Return events passing quality cuts and a fixed gammaness cut."""
+        if self.energy_dependent_gh:
+            raise ValueError("direct filtering requires gh_cut; gh_efficiency is only supported for IRF/DL3 reduction")
 
-        gh_cuts = self.dl3_cuts.energy_dependent_gh_cuts(selected, self.energy_bins)
-        return self.dl3_cuts.apply_energy_dependent_gh_cuts(selected, gh_cuts)
+        selected = self.event_selector.filter_cut(data).copy()
+        return self.dl3_cuts.apply_global_gh_cut(selected)
 
     def to_lstchain_config(self) -> dict:
         """Return the lstchain config sections defined by this filter."""
