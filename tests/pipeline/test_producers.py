@@ -194,8 +194,6 @@ class TestDL1Producer:
 
 
 class TestDL2Producer:
-    # TEST: Selection behavior is currently unspecified: build scans the whole DL1 directory.
-    # Add selected/unselected/missing/ambiguous cases after the intended contract is decided.
     # TEST: Local and SLURM cases should share one pending-plan test suite, retaining only
     # execution-specific assertions here (local reconstruction versus job command submission).
     def test_link_uses_same_tree_as_dl1(self, tmp_path, monkeypatch):
@@ -261,8 +259,8 @@ class TestDL2Producer:
 
     # TEST: Add a tool-completes-without-output case to verify warning/failed accounting,
     # and a no-pending SLURM case to verify that no empty job is submitted.
-    def test_build_reconstructs_pending_dl1(self, tmp_path, monkeypatch):
-        (dl1_file,) = self._make_dl1_tree(tmp_path, 10623)
+    def test_build_reconstructs_only_selected_pending_dl1(self, tmp_path, monkeypatch):
+        dl1_file, _ = self._make_dl1_tree(tmp_path, 10623, 99999)
         calls = self._fake_batch(monkeypatch)
         model_directory = tmp_path / "models"
         model_directory.mkdir()
@@ -429,7 +427,7 @@ class TestDL2Producer:
         slurm_cfg = SlurmConfig(enabled=False)
         producer = DL2Producer(config, tmp_path / "out", slurm_config=slurm_cfg)
 
-        counts = producer.produce(make_selection([RUN_10623]))
+        counts = producer.produce(make_selection([{"runnumber": 10001, "date": 20220426}]))
 
         assert counts["dl2:built"] == 1
         assert len(calls) == 1

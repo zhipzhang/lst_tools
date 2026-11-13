@@ -30,6 +30,7 @@ from lst_tools.finder import (
 )
 
 from .configs import DL1ProducerConfig, DL2ProducerConfig, DL3ProducerConfig, SourceConfig
+from .dl2_inputs import dl2_output_path, find_pending_dl1_files
 from .dl3 import DL2Observation, DL3Build, DL3Reduction
 from .dl3_execution import submit_dl3_build
 from .selection import RunSelection
@@ -229,15 +230,12 @@ class DL2Producer(DLProducer):
 
         return counts
 
-    # REFACTOR: build() and slurm_build() ignore selection and scan every dl1_*.h5 file.
-    # Define one selected-run contract (matching DL3): exactly one DL1 per selected run,
-    # explicit missing/ambiguous errors, and no reconstruction of unselected files.
-    # REFACTOR: Pending-file discovery, output-name mapping, and existing/overwrite logic
-    # are duplicated in local and SLURM paths. Extract one shared reconstruction plan.
     def build(self, selection: RunSelection) -> Counter:
-        """Reconstruct DL2 from the linked DL1 files.
+        """Reconstruct DL2 from the selected DL1 files.
 
-        Runs whose DL2 already exists are kept unless ``overwrite = true``.
+        Selected runs with missing or ambiguous DL1 inputs are skipped with
+        a warning. Runs whose DL2 already exists are kept unless
+        ``overwrite = true``.
 
         The rf_directory template's ``$NSB_LEVEL`` placeholder is resolved
         per run from the run's DL1 file (``LSTDL1File.nsb_level``); runs
@@ -251,24 +249,21 @@ class DL2Producer(DLProducer):
         rf_template = build_options.rf_directory
         overwrite = build_options.overwrite
 
+        pending, existing_count = find_pending_dl1_files(
+            selection,
+            self.dl1_directory,
+            self.output_dir,
+            overwrite=overwrite,
+        )
         counts: Counter = Counter()
-        if not self.dl1_directory.is_dir():
-            warnings.warn(f"dl2: no DL1 directory at {self.dl1_directory}; skipping", stacklevel=2)
-            return counts
-
-        dl1_files = sorted(self.dl1_directory.glob("dl1_*.h5"))
-        pending = [
-            dl1_file
-            for dl1_file in dl1_files
-            if overwrite or not (self.output_dir / dl1_file.name.replace("dl1", "dl2", 1)).exists()
-        ]
-        counts["dl2:existing"] += len(dl1_files) - len(pending)
+        if existing_count:
+            counts["dl2:existing"] = existing_count
         if not pending:
             return counts
 
         reconstruct_dl1_to_dl2(pending, self.output_dir, rf_template, overwrite=overwrite)
         for dl1_file in pending:
-            if (self.output_dir / dl1_file.name.replace("dl1", "dl2", 1)).exists():
+            if dl2_output_path(dl1_file, self.output_dir).exists():
                 counts["dl2:built"] += 1
             else:
                 warnings.warn(f"DL1ToDL2Tool did not create the DL2 file for {dl1_file}", stacklevel=2)
