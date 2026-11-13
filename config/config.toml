@@ -96,6 +96,9 @@ leakage_cut = 1.0
 gh_efficiency = 0.7
 #gh_cut = 0.7                   # alternative to gh_efficiency
 point_like = false # true for point-like IRFs; false for full-enclosure
+# For point_like = true, set exactly one theta selection:
+#theta_cut = 0.2                # fixed theta cut in degrees
+#theta_containment = 0.68       # energy-dependent containment fraction
 
 #[dl3.link]
 #output_directory = "/data/linked/dl3"   # default: <output>/dl3

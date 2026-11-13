@@ -57,8 +57,7 @@ def test_build_reuses_products_with_real_processes(tmp_path):
     from lstchain.io.io import dl2_params_lstcam_key
     from lstchain.paths import dl2_to_dl3_filename
 
-    from lst_tools.event_filter import EventFilter
-    from lst_tools.irf import IRFConfig, IRFNode
+    from lst_tools.irf import GammaMCSample, IRFConfig, irf_file_path
     from lst_tools.pipeline import DL3BuildOptions, DL3Producer, DL3ProducerConfig, DL3ReductionOptions, RunSelection
     from lst_tools.pipeline.configs import SourceConfig
 
@@ -81,21 +80,38 @@ def test_build_reuses_products_with_real_processes(tmp_path):
     (dl2_dir / "dl2_LST-1.Run99999.h5").touch()
 
     reductions = tuple(
-        DL3ReductionOptions(name, EventFilter.from_cuts(intensity, 1.0, gh_cut=0.7), point_like=point)
+        DL3ReductionOptions(
+            name,
+            IRFConfig.from_cuts(
+                intensity,
+                1.0,
+                gh_cut=0.7,
+                point_like=point,
+                theta_cut=0.2 if point else None,
+            ),
+        )
         for name, intensity, point in (("standard", 80, False), ("point", 150, True))
     )
     campaign = tmp_path / "mc_nsb_0.38"
     for reduction in reductions:
-        config = IRFConfig(reduction.event_filter, point_like=reduction.point_like)
-        mc_type = "Gamma" if reduction.point_like else "GammaDiffuse"
+        config = reduction.irf_config
+        mc_type = "Gamma" if config.point_like else "GammaDiffuse"
         mc_file = campaign / "TestingDataset" / mc_type / "dec_347" / "node_theta_20_az_180" / "dl2_test_merged.h5"
         mc_file.parent.mkdir(parents=True, exist_ok=True)
         mc_file.touch()
-        node = IRFNode(0.38, 347, 20, 180, mc_file, config.irf_type, "cut", 0.7)
-        irf_file = tmp_path / "irfs" / reduction.name / node.relative_path
+        sample = GammaMCSample(
+            path=mc_file,
+            mc_type="point-source" if config.point_like else "diffuse",
+            nsb_level=0.38,
+            dec_line=347,
+            zenith=20,
+            azimuth=180,
+        )
+        relative_path = irf_file_path(sample, irf_type=config.irf_type, cut_label=config.cut_label)
+        irf_file = tmp_path / "irfs" / reduction.name / relative_path
         irf_file.parent.mkdir(parents=True)
         fits.PrimaryHDU().writeto(irf_file)
-        (irf_file.parent / f"{node.pointing_name}.config.json").write_text(json.dumps(config.to_lstchain_config()))
+        (irf_file.parent / f"{sample.pointing_name}.config.json").write_text(json.dumps(config.to_irf_config()))
         output = tmp_path / "dl3" / reduction.name / dl2_to_dl3_filename(dl2_file)
         output.parent.mkdir(parents=True)
         fits.PrimaryHDU().writeto(output)
@@ -113,6 +129,6 @@ def test_build_reuses_products_with_real_processes(tmp_path):
         pickle.dump(producer.prepare_build(selection), file_handle)
 
     assert dl3_build.build_dl3(build_pickle, max_workers=2) == {
-        "dl3:irf_nodes": 2, "dl3:reduced": 2, "dl3:failed": 0
+        "dl3:irf_files": 2, "dl3:reduced": 2, "dl3:failed": 0
     }
     assert not list((tmp_path / "dl3").rglob("*Run99999*"))

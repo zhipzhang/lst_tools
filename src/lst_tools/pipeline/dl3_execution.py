@@ -10,7 +10,7 @@ from pathlib import Path
 from typing import TypeVar
 from uuid import uuid4
 
-from .dl3 import DL3Build, DL3Reduction, IRFSet
+from .dl3 import DL3Build, DL3Reduction, IRFGrid
 from .slurm_config import SlurmConfig
 
 Task = TypeVar("Task")
@@ -23,8 +23,8 @@ class DL3Executor:
             raise ValueError("DL3 max_workers must be positive")
         self.max_workers = max_workers if max_workers is not None else (os.cpu_count() or 1)
 
-    def prepare_irfs(self, irf_sets: Sequence[IRFSet]) -> None:
-        self._map(IRFSet.prepare, irf_sets)
+    def prepare_irfs(self, irf_grids: Sequence[IRFGrid]) -> None:
+        self._map(IRFGrid.prepare, irf_grids)
 
     def reduce_observations(self, reductions: Sequence[DL3Reduction]) -> Counter:
         counts: Counter = Counter()

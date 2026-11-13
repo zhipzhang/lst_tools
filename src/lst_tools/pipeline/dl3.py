@@ -8,7 +8,7 @@ from typing import Literal
 from lst_tools.dl2 import LSTObservedDL2Table
 from lst_tools.dl3 import DL3Reducer
 from lst_tools.finder import MC_DL2_PATH, MCDL2Attribute, find_mc_dl2_files, parse_run_id
-from lst_tools.irf import IRFConfig, IRFGenerator, IRFNode, MCNode, irf_group_path
+from lst_tools.irf import GammaMCSample, IRFConfig, IRFGenerator, irf_grid_path
 
 from .configs import NSB_LEVEL_VARIABLE, DL3BuildOptions, DL3ReductionOptions, SourceConfig
 from .selection import RunSelection
@@ -62,43 +62,51 @@ class MCCatalog:
         self.directory_template = directory_template
         self._campaigns: dict[Path, list[MCDL2Attribute]] = {}
 
-    def nodes_for(self, group: MCGroup, irf_type: Literal["full-enclosure", "point"]) -> tuple[MCNode, ...]:
+    def samples_for(self, group: MCGroup, irf_type: Literal["full-enclosure", "point"]) -> tuple[GammaMCSample, ...]:
         campaign = Path(self.directory_template.replace(NSB_LEVEL_VARIABLE, f"{group.nsb_level:.2f}")).expanduser()
         if not campaign.is_absolute():
             campaign = MC_DL2_PATH / campaign
         if campaign not in self._campaigns:
             self._campaigns[campaign] = list(find_mc_dl2_files(campaign))
-        mc_type = "Gamma" if irf_type == "point" else "GammaDiffuse"
-        nodes = tuple(
-            MCNode(attribute.nsb, attribute.dec, attribute.theta, attribute.azimuth, attribute.path, irf_type)
-            for attribute in self._campaigns[campaign]
-            if attribute.nsb == group.nsb_level and attribute.dec == group.dec_line and attribute.mc_type == mc_type
-        )
-        if not nodes:
-            raise FileNotFoundError(
-                f"No {mc_type} MC nodes for NSB {group.nsb_level:g}, declination line {group.dec_line} in {campaign}"
+        finder_mc_type = "Gamma" if irf_type == "point" else "GammaDiffuse"
+        samples = tuple(
+            GammaMCSample(
+                path=attribute.path,
+                mc_type="point-source" if finder_mc_type == "Gamma" else "diffuse",
+                nsb_level=attribute.nsb,
+                dec_line=attribute.dec,
+                zenith=attribute.theta,
+                azimuth=attribute.azimuth,
             )
-        return nodes
+            for attribute in self._campaigns[campaign]
+            if attribute.nsb == group.nsb_level and attribute.dec == group.dec_line and attribute.mc_type == finder_mc_type
+        )
+        if not samples:
+            raise FileNotFoundError(
+                f"No {finder_mc_type} MC samples for NSB {group.nsb_level:g}, "
+                f"declination line {group.dec_line} in {campaign}"
+            )
+        return samples
 
 
 @dataclass(frozen=True)
-class IRFSet:
+class IRFGrid:
     group: MCGroup
     root: Path
     config: IRFConfig
-    nodes: tuple[IRFNode, ...]
+    samples: tuple[GammaMCSample, ...]
 
     @property
     def directory(self) -> Path:
-        return self.root / irf_group_path(
+        return self.root / irf_grid_path(
             nsb_level=self.group.nsb_level,
             dec_line=self.group.dec_line,
             irf_type=self.config.irf_type,
-            cut_label=self.config.event_filter.cut_label,
+            cut_label=self.config.cut_label,
         )
 
     def prepare(self) -> list[Path]:
-        return IRFGenerator(self.root, self.config).make_irf_nodes(self.nodes)
+        return IRFGenerator(self.root, self.config).generate_all(self.samples)
 
 
 @dataclass(frozen=True)
@@ -126,7 +134,7 @@ class DL3Reduction:
         return cls(
             name=reduction.name,
             source=source,
-            irf_config=IRFConfig(reduction.event_filter, point_like=reduction.point_like),
+            irf_config=reduction.irf_config,
             irfs_root=(irfs_root / reduction.name).absolute(),
             output_dir=(output_dir / reduction.name).absolute(),
             observations=observations,
@@ -135,16 +143,16 @@ class DL3Reduction:
             overwrite=options.overwrite,
         )
 
-    def required_irf_sets(self, groups: tuple[MCGroup, ...], catalog: MCCatalog) -> tuple[IRFSet, ...]:
-        event_filter = self.irf_config.event_filter
-        sets = []
-        for group in groups:
-            nodes = {}
-            for mc_node in catalog.nodes_for(group, self.irf_config.irf_type):
-                node = IRFNode.from_mc_node(mc_node, gh_type=event_filter.gh_type, gh_value=event_filter.gh_value)
-                nodes.setdefault(node.relative_path, node)
-            sets.append(IRFSet(group, self.irfs_root, self.irf_config, tuple(nodes.values())))
-        return tuple(sets)
+    def required_irf_grids(self, groups: tuple[MCGroup, ...], catalog: MCCatalog) -> tuple[IRFGrid, ...]:
+        return tuple(
+            IRFGrid(
+                group,
+                self.irfs_root,
+                self.irf_config,
+                tuple(dict.fromkeys(catalog.samples_for(group, self.irf_config.irf_type))),
+            )
+            for group in groups
+        )
 
     def reduce_observations(self) -> Counter:
         reducer = DL3Reducer(
@@ -181,13 +189,13 @@ class DL3Build:
             return Counter()
         groups = tuple(dict.fromkeys(observation.mc_group() for observation in self.observations))
         catalog = MCCatalog(self.mc_dl2_directory)
-        irf_sets = tuple(
-            irf_set for reduction in self.reductions for irf_set in reduction.required_irf_sets(groups, catalog)
+        irf_grids = tuple(
+            irf_grid for reduction in self.reductions for irf_grid in reduction.required_irf_grids(groups, catalog)
         )
         executor = DL3Executor(max_workers)
-        executor.prepare_irfs(irf_sets)
+        executor.prepare_irfs(irf_grids)
         counts = executor.reduce_observations(self.reductions)
-        counts["dl3:irf_nodes"] = sum(len(irf_set.nodes) for irf_set in irf_sets)
+        counts["dl3:irf_files"] = sum(len(irf_grid.samples) for irf_grid in irf_grids)
         return counts
 
     def validate_inputs(self) -> None:

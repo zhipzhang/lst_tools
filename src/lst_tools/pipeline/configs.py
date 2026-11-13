@@ -18,7 +18,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, ClassVar, Generic, Literal, Protocol, Self, TypeVar
 
-from lst_tools.event_filter import EventFilter
+from lst_tools.irf import IRFConfig
 
 Source = Literal["link", "build"]
 IRFType = Literal["full-enclosure", "point"]
@@ -208,14 +208,22 @@ class DL2ProducerConfig(_LevelProducerConfig[DL2LinkOptions, DL2BuildOptions]):
 @dataclass(frozen=True)
 class DL3ReductionOptions:
     name: str
-    event_filter: EventFilter
-    point_like: bool = False
+    irf_config: IRFConfig
 
     @classmethod
     def parse(cls, section: dict, *, where: str = "dl3.build.reduction") -> Self:
         _unknown_keys(
             section,
-            {"name", "intensity_cut", "leakage_cut", "gh_cut", "gh_efficiency", "point_like"},
+            {
+                "name",
+                "intensity_cut",
+                "leakage_cut",
+                "gh_cut",
+                "gh_efficiency",
+                "point_like",
+                "theta_cut",
+                "theta_containment",
+            },
             where,
         )
         name = section.get("name")
@@ -224,17 +232,20 @@ class DL3ReductionOptions:
                 f"[{where}] requires a path-safe name matching [A-Za-z0-9][A-Za-z0-9_.-]*"
             )
         try:
-            event_filter = EventFilter.from_cuts(
+            irf_config = IRFConfig.from_cuts(
                 intensity_cut=section["intensity_cut"],
                 leakage_cut=section["leakage_cut"],
                 gh_cut=section.get("gh_cut"),
                 gh_efficiency=section.get("gh_efficiency"),
+                point_like=section.get("point_like", False),
+                theta_cut=section.get("theta_cut"),
+                theta_containment=section.get("theta_containment"),
             )
         except KeyError as missing:
             raise ConfigError(f"[{where}] is missing required key {missing}") from missing
         except ValueError as invalid:
             raise ConfigError(f"[{where}] is invalid: {invalid}") from invalid
-        return cls(name=name, event_filter=event_filter, point_like=section.get("point_like", False))
+        return cls(name=name, irf_config=irf_config)
 
 
 @dataclass(frozen=True)

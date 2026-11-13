@@ -9,8 +9,8 @@ import pytest
 import lst_tools.pipeline.dl3 as dl3_module
 import lst_tools.pipeline.dl3_execution as execution_module
 import lst_tools.pipeline.producers as producers_module
-from lst_tools.event_filter import EventFilter
 from lst_tools.finder import MC_DL2_PATH, DL3Attributes, DLAttributes, MCDL2Attribute
+from lst_tools.irf import IRFConfig
 from lst_tools.pipeline import (
     DL1LinkOptions,
     DL1Producer,
@@ -269,7 +269,7 @@ class TestDL3Producer:
             MCDL2Attribute(Path("/mc/gamma.h5"), "Gamma", 20, 180, 0.38, 347),
             MCDL2Attribute(Path("/mc/other_dec.h5"), "GammaDiffuse", 20, 180, 0.38, 999),
         ]
-        made_nodes = []
+        made_samples = []
         reductions = []
         generator_bases = []
         campaigns = []
@@ -283,15 +283,15 @@ class TestDL3Producer:
                 self.base_path = Path(base_path)
                 generator_bases.append(self.base_path)
 
-            def make_irf_nodes(self, nodes):
-                made_nodes.extend(nodes)
+            def generate_all(self, samples):
+                made_samples.extend(samples)
 
         class FakeDL3Reducer:
             def __init__(self, **kwargs):
                 self.kwargs = kwargs
 
             def reduce(self, dl2_files, output_dir):
-                assert made_nodes
+                assert made_samples
                 dl2_files = list(dl2_files)
                 reductions.append((dl2_files, Path(output_dir)))
                 return [dl2_file.with_suffix(".fits") for dl2_file in dl2_files]
@@ -303,17 +303,21 @@ class TestDL3Producer:
         monkeypatch.setattr(dl3_module, "find_mc_dl2_files", fake_find_mc_dl2_files)
         monkeypatch.setattr(dl3_module, "IRFGenerator", FakeIRFGenerator)
         monkeypatch.setattr(dl3_module, "DL3Reducer", FakeDL3Reducer)
-        return made_nodes, reductions, generator_bases, campaigns
+        return made_samples, reductions, generator_bases, campaigns
 
     @staticmethod
     def _build_config(**overrides):
-        reduction = DL3ReductionOptions(
-            name="standard",
-            event_filter=overrides.pop(
-                "event_filter", EventFilter.from_cuts(intensity_cut=80, leakage_cut=1.0, gh_cut=0.7)
-            ),
-            point_like=overrides.pop("point_like", False),
-        )
+        point_like = overrides.pop("point_like", False)
+        irf_config = overrides.pop("irf_config", None)
+        if irf_config is None:
+            irf_config = IRFConfig.from_cuts(
+                intensity_cut=80,
+                leakage_cut=1.0,
+                gh_cut=0.7,
+                point_like=point_like,
+                theta_cut=0.2 if point_like else None,
+            )
+        reduction = DL3ReductionOptions(name="standard", irf_config=irf_config)
         options = {
             "output_directory": None,
             "irf_directory": None,
@@ -324,39 +328,37 @@ class TestDL3Producer:
 
     def test_build_generates_irfs_and_reduces_all_selected_runs(self, tmp_path, monkeypatch):
         dl2_files = self._make_dl2_tree(tmp_path, 10623, 10624)
-        made_nodes, reductions, generator_bases, campaigns = self._fake_irf_and_reduction(monkeypatch)
+        made_samples, reductions, generator_bases, campaigns = self._fake_irf_and_reduction(monkeypatch)
         producer = DL3Producer(
             self._build_config(), tmp_path / "out", source=SourceConfig("Crab Nebula", 83.632, 22.0145)
         )
 
         counts = producer.produce(make_selection([RUN_10623, RUN_10624]))
 
-        assert len(made_nodes) == 1
-        assert made_nodes[0].dl2_path == Path("/mc/diffuse.h5")
-        assert made_nodes[0].irf_type == "full-enclosure"
-        assert counts == {"dl3:irf_nodes": 1, "dl3:reduced": 2, "dl3:failed": 0}
+        assert len(made_samples) == 1
+        assert made_samples[0].path == Path("/mc/diffuse.h5")
+        assert made_samples[0].mc_type == "diffuse"
+        assert counts == {"dl3:irf_files": 1, "dl3:reduced": 2, "dl3:failed": 0}
         assert generator_bases == [tmp_path / "out" / "irfs" / "standard"]
         assert reductions == [(dl2_files, tmp_path / "out" / "dl3" / "standard")]
         assert campaigns == [MC_DL2_PATH / "20250212_v0.10.17_allsky_interp_dl2_irfs_nsb_0.38"]
 
     @pytest.mark.parametrize("point_like", [False, True])
-    def test_build_applies_reduction_to_irf_nodes(self, tmp_path, monkeypatch, point_like):
+    def test_build_selects_mc_sample_for_irf_type(self, tmp_path, monkeypatch, point_like):
         self._make_dl2_tree(tmp_path, 10623)
-        made_nodes, _, _, _ = self._fake_irf_and_reduction(monkeypatch)
+        made_samples, _, _, _ = self._fake_irf_and_reduction(monkeypatch)
         producer = DL3Producer(
             self._build_config(point_like=point_like), tmp_path / "out", source=SourceConfig("Crab", 83.6, 22.0)
         )
 
         producer.produce(make_selection([RUN_10623]))
 
-        assert made_nodes[0].gh_type == "cut"
-        assert made_nodes[0].gh_value == pytest.approx(0.7)
-        assert made_nodes[0].dl2_path == Path("/mc/gamma.h5" if point_like else "/mc/diffuse.h5")
-        assert made_nodes[0].irf_type == ("point" if point_like else "full-enclosure")
+        assert made_samples[0].path == Path("/mc/gamma.h5" if point_like else "/mc/diffuse.h5")
+        assert made_samples[0].mc_type == ("point-source" if point_like else "diffuse")
 
     def test_build_prepares_each_mc_group_then_reduces(self, tmp_path, monkeypatch):
         dl2_files = self._make_dl2_tree(tmp_path, 10623, 10624)
-        made_nodes, _, _, _ = self._fake_irf_and_reduction(monkeypatch)
+        made_samples, _, _, _ = self._fake_irf_and_reduction(monkeypatch)
         nsb_by_file = dict(zip(dl2_files, (0.22, 0.38), strict=True))
         monkeypatch.setattr(
             dl3_module, "LSTObservedDL2Table",
@@ -372,15 +374,15 @@ class TestDL3Producer:
 
         counts = producer.produce(make_selection([RUN_10623, RUN_10624]))
 
-        assert {node.nsb_level for node in made_nodes} == {0.22, 0.38}
-        assert counts["dl3:irf_nodes"] == 2
+        assert {sample.nsb_level for sample in made_samples} == {0.22, 0.38}
+        assert counts["dl3:irf_files"] == 2
         assert ImmediateExecutor.workers == [2, 1]
 
     def test_build_isolates_reductions_and_shares_discovery(self, tmp_path, monkeypatch):
         dl2_files = self._make_dl2_tree(tmp_path, 10623)
-        made_nodes, reductions, generator_bases, campaigns = self._fake_irf_and_reduction(monkeypatch)
+        made_samples, reductions, generator_bases, campaigns = self._fake_irf_and_reduction(monkeypatch)
         reduction_options = tuple(
-            DL3ReductionOptions(name, EventFilter.from_cuts(intensity, 1.0, gh_cut=0.7))
+            DL3ReductionOptions(name, IRFConfig.from_cuts(intensity, 1.0, gh_cut=0.7))
             for name, intensity in (("standard", 80), ("quality_tight", 150))
         )
         producer = DL3Producer(
@@ -395,12 +397,12 @@ class TestDL3Producer:
         monkeypatch.setattr(dl3_module, "LSTObservedDL2Table", read_table)
         counts = producer.produce(make_selection([RUN_10623]))
 
-        assert [node.cut_label for node in made_nodes] == ["ghcut0.7", "ghcut0.7"]
+        assert [sample.path for sample in made_samples] == [Path("/mc/diffuse.h5")] * 2
         assert generator_bases == [tmp_path / "out" / "irfs" / name for name in ("standard", "quality_tight")]
         assert reductions == [
             (dl2_files, tmp_path / "out" / "dl3" / name) for name in ("standard", "quality_tight")
         ]
-        assert counts["dl3:irf_nodes"] == 2
+        assert counts["dl3:irf_files"] == 2
         assert counts["dl3:reduced"] == 2
         assert len(campaigns) == 1
         assert provenance_reads == dl2_files
@@ -429,7 +431,7 @@ class TestDL3Producer:
     @pytest.mark.parametrize("slurm", [False, True])
     def test_missing_selected_dl2_stops_before_work(self, tmp_path, monkeypatch, slurm):
         self._make_dl2_tree(tmp_path, 10623)
-        made_nodes, reductions, _, campaigns = self._fake_irf_and_reduction(monkeypatch)
+        made_samples, reductions, _, campaigns = self._fake_irf_and_reduction(monkeypatch)
         producer = DL3Producer(
             self._build_config(), tmp_path / "out", source=SourceConfig("Crab", 83.6, 22.0),
             slurm_config=SlurmConfig(enabled=slurm),
@@ -439,7 +441,7 @@ class TestDL3Producer:
 
         assert "10624" in str(error.value)
         assert str(tmp_path / "out" / "dl2") in str(error.value)
-        assert not made_nodes and not reductions and not campaigns
+        assert not made_samples and not reductions and not campaigns
         assert not (tmp_path / "out" / "slurm_jobs").exists()
 
     def test_missing_dl2_directory_lists_all_selected_runs(self, tmp_path):
@@ -475,7 +477,7 @@ class TestDL3Producer:
     @pytest.mark.parametrize("slurm", [False, True])
     def test_empty_selection_does_no_work(self, tmp_path, monkeypatch, slurm):
         self._make_dl2_tree(tmp_path, 10623)
-        made_nodes, reductions, _, campaigns = self._fake_irf_and_reduction(monkeypatch)
+        made_samples, reductions, _, campaigns = self._fake_irf_and_reduction(monkeypatch)
         selection = make_selection([RUN_10623])
         selection.selected = selection.selected.iloc[:0]
         producer = DL3Producer(
@@ -483,17 +485,17 @@ class TestDL3Producer:
             slurm_config=SlurmConfig(enabled=slurm),
         )
         assert producer.produce(selection) == {}
-        assert not made_nodes and not reductions and not campaigns
+        assert not made_samples and not reductions and not campaigns
         assert not (tmp_path / "out" / "slurm_jobs").exists()
 
-    def test_missing_mc_nodes_stop_before_reduction(self, tmp_path, monkeypatch):
+    def test_missing_mc_samples_stop_before_reduction(self, tmp_path, monkeypatch):
         self._make_dl2_tree(tmp_path, 10623)
-        made_nodes, reductions, _, _ = self._fake_irf_and_reduction(monkeypatch)
+        made_samples, reductions, _, _ = self._fake_irf_and_reduction(monkeypatch)
         monkeypatch.setattr(dl3_module, "find_mc_dl2_files", lambda path: [])
         producer = DL3Producer(self._build_config(), tmp_path / "out", source=SourceConfig("Crab", 83.6, 22.0))
-        with pytest.raises(FileNotFoundError, match="No GammaDiffuse MC nodes"):
+        with pytest.raises(FileNotFoundError, match="No GammaDiffuse MC samples"):
             producer.produce(make_selection([RUN_10623]))
-        assert not made_nodes and not reductions
+        assert not made_samples and not reductions
 
     def test_irf_failure_prevents_reduction(self, tmp_path, monkeypatch):
         self._make_dl2_tree(tmp_path, 10623)
@@ -502,7 +504,7 @@ class TestDL3Producer:
         def fail(self):
             raise RuntimeError("IRF generation failed")
 
-        monkeypatch.setattr(dl3_module.IRFSet, "prepare", fail)
+        monkeypatch.setattr(dl3_module.IRFGrid, "prepare", fail)
         producer = DL3Producer(self._build_config(), tmp_path / "out", source=SourceConfig("Crab", 83.6, 22.0))
         with pytest.raises(RuntimeError, match="IRF generation failed"):
             producer.produce(make_selection([RUN_10623]))

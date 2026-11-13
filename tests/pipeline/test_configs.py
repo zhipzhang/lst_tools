@@ -2,7 +2,7 @@ from pathlib import Path
 
 import pytest
 
-from lst_tools.event_filter import EventFilter
+from lst_tools.irf import IRFConfig
 from lst_tools.pipeline import (
     DL1ProducerConfig,
     DL2ProducerConfig,
@@ -132,7 +132,7 @@ class TestDL3Config:
                     "overwrite": True,
                     "mc_dl2_directory": "custom_nsb_$NSB_LEVEL",
                     "reduction": [
-                        self._reduction(point_like=True),
+                        self._reduction(point_like=True, theta_cut=0.2),
                         self._reduction(
                             name="tight",
                             intensity_cut=150,
@@ -151,11 +151,11 @@ class TestDL3Config:
         assert config.build.irf_directory is None
         assert config.build.mc_dl2_directory == "custom_nsb_$NSB_LEVEL"
         assert [reduction.name for reduction in config.build.reductions] == ["standard", "tight"]
-        assert config.build.reductions[0].point_like is True
-        assert config.build.reductions[0].event_filter.gh_type == "efficiency"
-        assert config.build.reductions[1].event_filter.gh_type == "cut"
-        assert config.build.reductions[1].event_filter.gh_value == pytest.approx(0.9)
-        assert all(isinstance(reduction.event_filter, EventFilter) for reduction in config.build.reductions)
+        assert config.build.reductions[0].irf_config.point_like is True
+        assert config.build.reductions[0].irf_config.energy_dependent_gh is True
+        assert config.build.reductions[1].irf_config.energy_dependent_gh is False
+        assert config.build.reductions[1].irf_config.dl3_cuts.global_gh_cut == pytest.approx(0.9)
+        assert all(isinstance(reduction.irf_config, IRFConfig) for reduction in config.build.reductions)
 
     def test_build_mode_rejects_flat_cuts(self):
         with pytest.raises(ConfigError, match=r"cuts moved under \[\[dl3.build.reduction\]\]"):
@@ -169,7 +169,7 @@ class TestDL3Config:
         config = DL3ProducerConfig.parse(
             {"source": "build", "build": {"reduction": [self._reduction()]}}
         )
-        assert config.build.reductions[0].point_like is False
+        assert config.build.reductions[0].irf_config.point_like is False
         assert config.build.mc_dl2_directory == "20250212_v0.10.17_allsky_interp_dl2_irfs_nsb_$NSB_LEVEL"
 
     def test_build_requires_intensity_and_leakage(self):
@@ -180,6 +180,11 @@ class TestDL3Config:
     def test_build_requires_exactly_one_gh_mode(self):
         reduction = self._reduction(gh_cut=0.5)
         with pytest.raises(ConfigError, match="exactly one"):
+            DL3ProducerConfig.parse({"source": "build", "build": {"reduction": [reduction]}})
+
+    def test_build_point_like_requires_exactly_one_theta_mode(self):
+        reduction = self._reduction(point_like=True)
+        with pytest.raises(ConfigError, match="exactly one of theta_cut and theta_containment"):
             DL3ProducerConfig.parse({"source": "build", "build": {"reduction": [reduction]}})
 
     @pytest.mark.parametrize("name", [None, "", ".standard", "../standard", "two/words"])
@@ -219,7 +224,7 @@ class TestDL3Config:
                 }
             )
         assert config.link is None
-        assert config.build.reductions[0].event_filter is not None
+        assert config.build.reductions[0].irf_config is not None
 
     def test_link_options_default_to_both_irf_types(self):
         config = DL3ProducerConfig.parse({"source": "link", "link": {}})

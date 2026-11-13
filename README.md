@@ -81,7 +81,8 @@ The MC campaign comes from `[dl3.build] mc_dl2_directory`, a template
 whose `$NSB_LEVEL` is replaced from each DL2 file's provenance. Relative
 paths resolve below `/fefs/aswg/data/mc/DL2/AllSky`; absolute paths are also
 accepted. `point_like = true` selects `Gamma` MC and point-like IRFs, while
-the default `false` selects `GammaDiffuse` and full-enclosure IRFs.
+the default `false` selects `GammaDiffuse` and full-enclosure IRFs. Point-like
+reductions require exactly one of `theta_cut` or `theta_containment`.
 
 Each `[[dl3.build.reduction]]` table defines one named DL3 selection. Its
 quality filters (`intensity_cut`, `leakage_cut`) are passed to the reduction
@@ -89,10 +90,12 @@ and its gammaness cut (`gh_cut` or `gh_efficiency`) is carried inside the
 IRFs, so data and IRFs always agree. Shared interpolation and MC options stay
 under `[dl3.build]`. Generated DL3 files are stored under
 `dl3/<reduction_name>/`, and IRFs under
-`irfs/<reduction_name>/nsb_<nsb>/dec_<line>/<irf_type>/<cut_label>/`.
+`irfs/<reduction_name>/dec_<line>/nsb_<nsb>/<irf_type>/<cut_label>/`.
 The unique reduction name keeps products separate even when only their
 quality cuts differ; `<irf_type>` is `point` or `full-enclosure`, and
-`<cut_label>` names the gammaness selection (`gheff0.7` or `ghcut0.7`).
+`<cut_label>` names the gammaness selection (`gheff0.7` or `ghcut0.7`); point-like
+IRFs also include the theta selection (for example `ghcut0.7_thetacut0.2` or
+`gheff0.7_thetacont0.68`).
 
 DL3 builds follow `RunSelection`: each selected run must have exactly one DL2
 file directly below `dl2/`. Missing inputs stop the build with a list of runs;
@@ -100,7 +103,7 @@ ambiguous matches are rejected. Unselected files are ignored. The same
 selected inputs are saved with a SLURM build and checked again when its worker
 starts.
 
-DL3 builds prepare IRF interpolation sets in parallel, then run named
+DL3 builds prepare IRF interpolation grids in parallel, then run named
 reductions in parallel after all IRFs are ready. Workers are bounded by the
 local CPU count, or the job's CPU allocation under SLURM. With SLURM enabled,
 the same build runs inside one job; `[slurm.dl3]` sets its CPU, memory, and

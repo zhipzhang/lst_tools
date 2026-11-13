@@ -4,24 +4,21 @@ from pathlib import Path
 
 import pytest
 
-from lst_tools.event_filter import EventFilter
-from lst_tools.irf import IRFConfig, IRFNode
+from lst_tools.irf import GammaMCSample, IRFConfig
 from lst_tools.irf.irf_generator import IRFGenerator
 
 
 @pytest.fixture
-def node(tmp_path):
+def sample(tmp_path):
     dl2_path = tmp_path / "dl2_mc_merged.h5"
     dl2_path.touch()
-    # Matches fixed_config(): full-enclosure IRFs at a fixed 0.5 gammaness cut.
-    return IRFNode(
+    return GammaMCSample(
+        path=dl2_path,
+        mc_type="diffuse",
         nsb_level=0.81,
         dec_line=2276,
         zenith=10,
         azimuth=20,
-        dl2_path=dl2_path,
-        gh_type="cut",
-        gh_value=0.5,
     )
 
 
@@ -40,16 +37,16 @@ def run_irf(monkeypatch):
 
 
 def fixed_config():
-    return IRFConfig(event_filter=EventFilter.from_cuts(80, 0.2, gh_cut=0.5))
+    return IRFConfig.from_cuts(80, 0.2, gh_cut=0.5)
 
 
-def test_make_irf_node_writes_irf_config_and_log_alongside(tmp_path, node, run_irf):
+def test_generate_writes_irf_config_and_log_alongside(tmp_path, sample, run_irf):
     generator = IRFGenerator(tmp_path / "irfs", fixed_config())
 
-    irf_file = generator.make_irf_node(node)
+    irf_file = generator.generate(sample)
 
     assert (
-        irf_file == (tmp_path / "irfs/nsb_0.81/dec_2276/full-enclosure/ghcut0.5/theta_10_az_20.irf.fits.gz").resolve()
+        irf_file == (tmp_path / "irfs/dec_2276/nsb_0.81/full-enclosure/ghcut0.5/theta_10_az_20.irf.fits.gz").resolve()
     )
     assert irf_file.is_file()
 
@@ -63,14 +60,14 @@ def test_make_irf_node_writes_irf_config_and_log_alongside(tmp_path, node, run_i
 
     command = run_irf[0]
     assert f"--config={config_file}" in command
-    assert f"--input-gamma-dl2={node.dl2_path}" in command
+    assert f"--input-gamma-dl2={sample.path}" in command
     assert "--overwrite" in command
 
 
-def test_make_irf_nodes_generates_all_requested_nodes(tmp_path, node, run_irf):
-    nodes = [node, replace(node, zenith=20)]
+def test_generate_all_generates_all_requested_samples(tmp_path, sample, run_irf):
+    samples = [sample, replace(sample, zenith=20)]
 
-    irf_files = IRFGenerator(tmp_path / "irfs", fixed_config()).make_irf_nodes(nodes)
+    irf_files = IRFGenerator(tmp_path / "irfs", fixed_config()).generate_all(samples)
 
     assert [path.name for path in irf_files] == [
         "theta_10_az_20.irf.fits.gz",
@@ -80,104 +77,69 @@ def test_make_irf_nodes_generates_all_requested_nodes(tmp_path, node, run_irf):
     assert len(run_irf) == 2
 
 
-def test_existing_irf_is_reused_when_the_config_is_unchanged(tmp_path, node, run_irf):
+def test_existing_irf_is_reused_when_the_config_is_unchanged(tmp_path, sample, run_irf):
     generator = IRFGenerator(tmp_path / "irfs", fixed_config())
 
-    first = generator.make_irf_node(node)
-    second = generator.make_irf_node(node)
+    first = generator.generate(sample)
+    second = generator.generate(sample)
 
     assert first == second
     assert len(run_irf) == 1
 
 
-def test_irf_is_regenerated_when_the_config_changes(tmp_path, node, run_irf):
+def test_irf_is_regenerated_in_place_when_quality_cuts_change(tmp_path, sample, run_irf):
     generator = IRFGenerator(tmp_path / "irfs", fixed_config())
-    generator.make_irf_node(node)
+    original_file = generator.generate(sample)
 
-    # Same cuts and IRF type, different quality filter: same file, new content.
-    new_config = IRFConfig(event_filter=EventFilter.from_cuts(50, 0.2, gh_cut=0.5))
-    IRFGenerator(tmp_path / "irfs", new_config).make_irf_node(node)
+    new_config = IRFConfig.from_cuts(50, 0.2, gh_cut=0.5)
+    updated_file = IRFGenerator(tmp_path / "irfs", new_config).generate(sample)
 
+    assert updated_file == original_file
+    assert len(run_irf) == 2
+    with open(original_file.parent / f"{sample.pointing_name}.config.json") as file_handle:
+        config = json.load(file_handle)
+    assert config["EventSelector"]["filters"]["intensity"] == [50.0, float("inf")]
+
+
+def test_point_like_config_uses_a_different_irf_file(tmp_path, sample, run_irf):
+    generator = IRFGenerator(tmp_path / "irfs", fixed_config())
+    full_enclosure_file = generator.generate(sample)
+
+    point_like_config = IRFConfig.from_cuts(80, 0.2, gh_cut=0.5, point_like=True, theta_cut=0.2)
+    point_sample = replace(sample, mc_type="point-source")
+    point_file = IRFGenerator(tmp_path / "irfs", point_like_config).generate(point_sample)
+
+    assert point_file != full_enclosure_file
+    assert point_file.parent.parent.name == "point"
+    assert point_file.parent.name == "ghcut0.5_thetacut0.2"
     assert len(run_irf) == 2
 
 
-def test_irf_is_regenerated_when_point_like_changes(tmp_path, node, run_irf):
+def test_point_like_irf_rejects_diffuse_sample(tmp_path, sample, run_irf):
+    config = IRFConfig.from_cuts(80, 0.2, gh_cut=0.5, point_like=True, theta_cut=0.2)
+    generator = IRFGenerator(tmp_path / "irfs", config)
+
+    with pytest.raises(ValueError, match="require a point-source"):
+        generator.generate(sample)
+
+    assert run_irf == []
+
+
+def test_irf_of_another_gammaness_selection_gets_its_own_directory(tmp_path, sample, run_irf):
     generator = IRFGenerator(tmp_path / "irfs", fixed_config())
-    generator.make_irf_node(node)
 
-    point_like_config = IRFConfig(event_filter=EventFilter.from_cuts(80, 0.2, gh_cut=0.5), point_like=True)
-    point_node = replace(node, irf_type="point")
-    IRFGenerator(tmp_path / "irfs", point_like_config).make_irf_node(point_node)
-
-    assert len(run_irf) == 2
-
-
-def test_irf_of_another_gammaness_selection_gets_its_own_directory(tmp_path, node, run_irf):
-    generator = IRFGenerator(tmp_path / "irfs", fixed_config())
-    efficiency_config = IRFConfig(event_filter=EventFilter.from_cuts(80, 0.2, gh_efficiency=0.7))
-
-    fixed_file = generator.make_irf_node(node)
-    efficiency_file = IRFGenerator(tmp_path / "irfs", efficiency_config).make_irf_node(
-        replace(node, gh_type="efficiency", gh_value=0.7)
-    )
+    fixed_file = generator.generate(sample)
+    efficiency_config = IRFConfig.from_cuts(80, 0.2, gh_efficiency=0.7)
+    efficiency_file = IRFGenerator(tmp_path / "irfs", efficiency_config).generate(sample)
 
     assert fixed_file.parent.name == "ghcut0.5"
     assert efficiency_file.parent.name == "gheff0.7"
     assert len(run_irf) == 2
 
 
-def test_node_cuts_must_match_the_generator_config(tmp_path, node, run_irf):
-    generator = IRFGenerator(tmp_path / "irfs", fixed_config())
-
-    with pytest.raises(ValueError, match=r"generator is configured for"):
-        generator.make_irf_node(replace(node, gh_value=0.9))
-
-    assert run_irf == []
-
-
-def test_quantile_mode_marks_energy_dependent_gh_in_the_config(tmp_path, node, run_irf):
-    irf_config = IRFConfig(event_filter=EventFilter.from_cuts(80, 0.2, gh_efficiency=0.7))
-    generator = IRFGenerator(tmp_path / "irfs", irf_config)
-
-    irf_file = generator.make_irf_node(replace(node, gh_type="efficiency", gh_value=0.7))
-
-    with open(irf_file.parent / "theta_10_az_20.config.json") as file_handle:
-        config = json.load(file_handle)
-    assert config["IRFFITSWriter"] == {"energy_dependent_gh": True, "point_like": False}
-    assert config["DL3Cuts"]["gh_efficiency"] == pytest.approx(0.7)
-
-
-def test_point_like_mode_marks_irf_type_in_the_config():
-    irf_config = IRFConfig(event_filter=EventFilter.from_cuts(80, 0.2, gh_cut=0.5), point_like=True)
-
-    config = irf_config.to_lstchain_config()
-
-    assert config["IRFFITSWriter"] == {"energy_dependent_gh": False, "point_like": True}
-
-
-def test_raises_when_the_command_produces_no_file(tmp_path, node, monkeypatch):
+def test_raises_when_the_command_produces_no_file(tmp_path, sample, monkeypatch):
     monkeypatch.setattr("lst_tools.irf.irf_generator.subprocess.run", lambda command, check: None)
     generator = IRFGenerator(tmp_path / "irfs", fixed_config())
 
     with pytest.raises(RuntimeError, match="without creating"):
-        generator.make_irf_node(node)
-
-
-def test_irf_config_serializes_all_lstchain_sections():
-    config = fixed_config().to_lstchain_config()
-
-    assert set(config) == {"EventSelector", "DL3Cuts", "IRFFITSWriter", "DataBinning"}
-    assert config["DataBinning"]["fov_offset_min"] == pytest.approx(0)
-    assert config["DataBinning"]["fov_offset_max"] == pytest.approx(2.5)
-    assert config["DataBinning"]["fov_offset_n_edges"] == 6
-
-
-def test_default_irf_config_reproduces_default_config_json():
-    import lst_tools.irf
-
-    with open(Path(lst_tools.irf.__file__).parent / "default_config.json") as file_handle:
-        reference = json.load(file_handle)
-
-    config = IRFConfig(event_filter=EventFilter.from_cuts(50, 1.0, gh_cut=0.7)).to_lstchain_config()
-
-    assert config == {**reference, "IRFFITSWriter": {"energy_dependent_gh": False, "point_like": False}}
+        generator.generate(sample)

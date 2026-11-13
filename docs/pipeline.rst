@@ -45,7 +45,8 @@ file using its provenance. Relative paths resolve below
 finder recursively reads the campaign's ``TestingDataset`` directories and
 selects the matching declination line. With ``point_like = true`` it uses
 ``Gamma`` and writes point-like IRFs; otherwise it uses ``GammaDiffuse`` and
-writes full-enclosure IRFs.
+writes full-enclosure IRFs. Point-like reductions require exactly one of
+``theta_cut`` or ``theta_containment``.
 
 Each ``[[dl3.build.reduction]]`` table defines one named DL3 selection. The
 quality filters (``intensity_cut``, ``leakage_cut``) are passed to the
@@ -60,7 +61,7 @@ an empty selection performs no work and submits no job. The selected file
 paths and reduction definitions are saved with a SLURM build, and the worker
 checks that the files still exist before starting.
 
-The build prepares IRF interpolation sets in parallel, then runs named
+The build prepares IRF interpolation grids in parallel, then runs named
 reductions in parallel after all IRFs are ready. Workers are bounded by the
 local CPU count, or the job's CPU allocation under SLURM. With SLURM enabled,
 the same build runs inside one job; ``[slurm.dl3]`` sets its CPU, memory, and
@@ -76,7 +77,7 @@ Workspace layout
    ├── dl1/              # linked input (stage 2)
    ├── dl2/              # linked or built (stage 3)
    ├── irfs/             # built during the DL3 build
-   │   └── <reduction_name>/nsb_<nsb>/dec_<line>/<irf_type>/<cut_label>/
+   │   └── <reduction_name>/dec_<line>/nsb_<nsb>/<irf_type>/<cut_label>/
    │       └── theta_<zenith>_az_<azimuth>.irf.fits.gz
    └── dl3/<reduction_name>/  # built reductions (stage 4)
 
@@ -84,7 +85,9 @@ The unique ``<reduction_name>`` keeps DL3 products and IRFs separate, even
 when reductions differ only in their quality cuts. Here ``<irf_type>`` is
 explicitly ``point`` or ``full-enclosure``, and ``<cut_label>`` names the
 gammaness selection, ``gheff0.7`` for an energy-dependent efficiency or
-``ghcut0.7`` for a fixed cut. Each reduction reads the IRF directory matching
+``ghcut0.7`` for a fixed cut. Point-like IRFs also include the theta selection,
+for example ``ghcut0.7_thetacut0.2`` or ``gheff0.7_thetacont0.68``.
+Each reduction reads the IRF directory matching
 its own configuration, so incompatible IRFs never share an interpolation set.
 
 Reruns are incremental: existing links are kept, existing files are reused,
