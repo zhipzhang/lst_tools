@@ -36,6 +36,7 @@ class DL3Reducer:
     def __init__(
         self,
         irfs_root: str | Path,
+        output_dir: str | Path,
         source_name: str,
         source_ra: float,
         source_dec: float,
@@ -46,6 +47,7 @@ class DL3Reducer:
         overwrite: bool = False,
     ):
         self.irfs_root = Path(irfs_root)
+        self.output_dir = Path(output_dir)
         self.source_name = source_name
         self.source_ra = float(source_ra)
         self.source_dec = float(source_dec)
@@ -54,36 +56,34 @@ class DL3Reducer:
         self.use_nearest_irf_node = use_nearest_irf_node
         self.overwrite = overwrite
 
-    def reduce(self, dl2_files: Iterable[str | Path], output_dir: str | Path) -> list[Path]:
-        """Reduce a set of DL2 files into one DL3 directory.
+    def reduce(self, dl2_files: Iterable[str | Path]) -> list[Path]:
+        """Reduce a set of DL2 files into ``self.output_dir``.
 
         A file whose reduction fails is skipped with a warning, so one bad
         run does not abort the rest; the returned list holds the DL3 files
         that exist afterwards.
         """
-        output_dir = Path(output_dir)
         reduced = []
         for dl2_file in dl2_files:
             try:
-                reduced.append(self.reduce_run(dl2_file, output_dir))
+                reduced.append(self.reduce_run(dl2_file))
             except Exception as error:  # noqa: BLE001 - one bad run must not abort the batch
                 warnings.warn(f"DL3 reduction failed for {dl2_file}: {error}", stacklevel=2)
         return reduced
 
-    def reduce_run(self, dl2_file: str | Path, output_dir: str | Path) -> Path:
-        """One DL2 file -> one DL3 observation."""
+    def reduce_run(self, dl2_file: str | Path) -> Path:
+        """One DL2 file -> one DL3 observation in ``self.output_dir``."""
         dl2_file = Path(dl2_file)
-        output_dir = Path(output_dir)
-        output_file = output_dir / dl2_to_dl3_filename(dl2_file)
+        output_file = self.output_dir / dl2_to_dl3_filename(dl2_file)
         if output_file.exists() and not self.overwrite:
             return output_file
 
-        output_dir.mkdir(parents=True, exist_ok=True)
+        self.output_dir.mkdir(parents=True, exist_ok=True)
         run_tool(
             DataReductionFITSWriter(
                 config=self._writer_config(),
                 input_dl2=dl2_file,
-                output_dl3_path=output_dir,
+                output_dl3_path=self.output_dir,
                 input_irf_path=self._irf_grid_dir(dl2_file),
                 irf_file_pattern=IRF_FILE_PATTERN,
                 source_name=self.source_name,

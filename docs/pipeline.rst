@@ -54,18 +54,16 @@ reduction and the gammaness cut (``gh_cut`` or ``gh_efficiency``) is carried
 inside the IRFs, so data and IRFs always agree. Shared interpolation and MC
 options stay under ``[dl3.build]``.
 
-DL3 builds follow ``RunSelection``. Each selected run must have exactly one
-DL2 file directly below ``dl2/``. Missing inputs stop the build with a list
-of runs; ambiguous matches are rejected. Unselected files are ignored, and
-an empty selection performs no work and submits no job. The selected file
-paths and reduction definitions are saved with a SLURM build, and the worker
-checks that the files still exist before starting.
+DL3 builds follow ``RunSelection``. Selected runs without exactly one DL2
+file directly below ``dl2/`` are skipped with a warning. Unselected files are
+ignored, and an empty selection performs no work and submits no job.
 
-The build prepares IRF interpolation grids in parallel, then runs named
-reductions in parallel after all IRFs are ready. Workers are bounded by the
+The build prepares IRF interpolation grids in parallel, then reduces DL2 runs
+in batches across workers after all IRFs are ready. Workers are bounded by the
 local CPU count, or the job's CPU allocation under SLURM. With SLURM enabled,
-the same build runs inside one job; ``[slurm.dl3]`` sets its CPU, memory, and
-walltime allocation.
+each named reduction writes its ``irf_config.json`` and runs inside its own
+job; ``[slurm.dl3]`` sets its worker batch size (``runs_per_worker``), CPU,
+memory, and walltime allocation.
 
 Workspace layout
 ----------------
@@ -139,6 +137,7 @@ shape is one section per level, with the mode-specific options in
    point_like = false
 
    [slurm.dl3]
+   runs_per_worker = 5
    cpus_per_task = 8
    mem = "40GB"
    time = "04:00:00"

@@ -28,11 +28,12 @@ from lst_tools.finder import (
     find_la_palma_files,
 )
 
-from .configs import DL1ProducerConfig, DL2ProducerConfig, DL3ProducerConfig, SourceConfig
+from .configs import DL1ProducerConfig, DL2ProducerConfig, DL3BuildOptions, DL3ProducerConfig, SourceConfig
 from .dl2_inputs import find_pending_dl1_files
 from .dl2_slurm import DL2SlurmSubmitter
-from .dl3 import DL2Observation, DL3Build, DL3Reduction
-from .dl3_execution import submit_dl3_build
+from .dl3_build import DL3Build
+from .dl3_inputs import find_selected_dl2_files
+from .dl3_slurm import DL3SlurmSubmitter
 from .selection import RunSelection
 from .slurm_config import SlurmConfig
 
@@ -245,7 +246,7 @@ class DL2Producer(DLProducer):
 
 class DL3Producer(DLProducer):
     level: ClassVar[Level] = "dl3"
-    worker_command: ClassVar[str] = "lst-dl3-build"
+    worker_command: ClassVar[str] = "lst-dl2-to-dl3"
     config: DL3ProducerConfig
 
     def __init__(
@@ -280,27 +281,57 @@ class DL3Producer(DLProducer):
         return Path(attrs.irf_type) / attrs.mc_data_type / cut_label / attrs.path.name
 
     def build(self, selection: RunSelection) -> Counter:
-        return self.prepare_build(selection).run()
+        options, source = self._validate_build_config()
+        dl2_files = find_selected_dl2_files(selection, self.dl2_directory)
+        if not dl2_files:
+            return Counter()
+        irfs_root = options.irf_directory or self.output_root / "irfs"
+        runs_per_worker = self.slurm_config.dl3.runs_per_worker if self.slurm_config is not None else 5
+        counts: Counter = Counter()
+        for reduction in options.reductions:
+            build = DL3Build(
+                dl2_files=dl2_files,
+                output_dir=self.output_dir / reduction.name,
+                irfs_root=irfs_root / reduction.name,
+                irf_config=reduction.irf_config,
+                mc_dl2_directory=options.mc_dl2_directory,
+                source_name=source.name,
+                source_ra=source.ra,
+                source_dec=source.dec,
+                interp_method=options.interp_method,
+                use_nearest_irf_node=options.use_nearest_irf_node,
+                overwrite=options.overwrite,
+            )
+            counts.update(build.run(runs_per_worker=runs_per_worker))
+        return counts
 
     def slurm_build(self, selection: RunSelection, slurm_config: SlurmConfig) -> Counter:
-        return submit_dl3_build(self.prepare_build(selection), self.output_root, slurm_config, self.worker_command)
+        options, source = self._validate_build_config()
+        dl2_files = find_selected_dl2_files(selection, self.dl2_directory)
+        if not dl2_files:
+            return Counter()
+        submitter = DL3SlurmSubmitter(
+            output_directory=self.output_dir,
+            irf_directory=options.irf_directory or self.output_root / "irfs",
+            log_directory=self.output_root / slurm_config.log_directory,
+            config=slurm_config,
+            worker_command=self.worker_command,
+        )
+        job_ids = submitter.submit(
+            dl2_files,
+            source=source,
+            reductions=options.reductions,
+            mc_dl2_directory=options.mc_dl2_directory,
+            interp_method=options.interp_method,
+            use_nearest_irf_node=options.use_nearest_irf_node,
+            overwrite=options.overwrite,
+        )
+        return Counter({"dl3:slurm_jobs": len(job_ids)})
 
-    def prepare_build(self, selection: RunSelection) -> DL3Build:
+    def _validate_build_config(self) -> tuple[DL3BuildOptions, SourceConfig]:
         options = self.config.build
         if options is None or not options.reductions:
             raise ValueError("dl3: building requires at least one [[dl3.build.reduction]] table")
         if self.source is None:
             raise ValueError("dl3: building requires the analysis source (SourceConfig with name, ra, dec)")
-        observations = DL2Observation.from_selection(selection, self.dl2_directory)
-        reductions = tuple(
-            DL3Reduction.from_options(
-                reduction=reduction,
-                options=options,
-                source=self.source,
-                observations=observations,
-                irfs_root=options.irf_directory or self.output_root / "irfs",
-                output_dir=self.output_dir,
-            )
-            for reduction in options.reductions
-        )
-        return DL3Build(observations, reductions, options.mc_dl2_directory)
+        return options, self.source

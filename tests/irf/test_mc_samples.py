@@ -2,7 +2,8 @@ from pathlib import Path
 
 import pytest
 
-from lst_tools.irf import GammaMCSample, irf_file_path, irf_grid_path
+from lst_tools.finder import MCDL2Attribute
+from lst_tools.irf import GammaMCSample, irf_file_path, irf_grid_path, select_gamma_mc_samples
 
 
 def make_sample(mc_type="diffuse"):
@@ -56,4 +57,32 @@ def test_irf_grid_path_is_the_directory_above_the_pointing_files():
         dec_line=sample.dec_line,
         irf_type="point",
         cut_label=cut_label,
+    )
+
+
+def test_select_gamma_mc_samples_filters_and_deduplicates_by_tuning_and_irf_type():
+    diffuse = MCDL2Attribute(Path("/mc/diffuse.h5"), "GammaDiffuse", 20, 180, 0.38, 347)
+    point = MCDL2Attribute(Path("/mc/gamma.h5"), "Gamma", 20, 180, 0.38, 347)
+    other_dec = MCDL2Attribute(Path("/mc/other_dec.h5"), "GammaDiffuse", 20, 180, 0.38, 999)
+    other_nsb = MCDL2Attribute(Path("/mc/other_nsb.h5"), "GammaDiffuse", 20, 180, 0.81, 347)
+    attributes = [diffuse, diffuse, point, other_dec, other_nsb]
+
+    full_samples = select_gamma_mc_samples(
+        attributes,
+        nsb_level=0.38,
+        dec_line=347,
+        irf_type="full-enclosure",
+    )
+    point_samples = select_gamma_mc_samples(
+        attributes,
+        nsb_level=0.38,
+        dec_line=347,
+        irf_type="point",
+    )
+
+    assert full_samples == (
+        GammaMCSample(Path("/mc/diffuse.h5"), "diffuse", 0.38, 347, 20, 180),
+    )
+    assert point_samples == (
+        GammaMCSample(Path("/mc/gamma.h5"), "point-source", 0.38, 347, 20, 180),
     )

@@ -56,6 +56,7 @@ class TestSlurmDL2Config:
 class TestSlurmDL3Config:
     def test_default_values(self):
         config = SlurmDL3Config.parse(None)
+        assert config.runs_per_worker == 5
         assert config.cpus_per_task == 4
         assert config.mem == "16GB"
         assert config.time == "04:00:00"
@@ -63,12 +64,24 @@ class TestSlurmDL3Config:
 
     def test_custom_values(self):
         config = SlurmDL3Config.parse(
-            {"cpus_per_task": 12, "mem": "32GB", "time": "06:00:00", "extra_args": {"qos": "priority"}}
+            {
+                "runs_per_worker": 3,
+                "cpus_per_task": 12,
+                "mem": "32GB",
+                "time": "06:00:00",
+                "extra_args": {"qos": "priority"},
+            }
         )
+        assert config.runs_per_worker == 3
         assert config.cpus_per_task == 12
         assert config.mem == "32GB"
         assert config.time == "06:00:00"
         assert config.extra_args == {"qos": "priority"}
+
+    @pytest.mark.parametrize("invalid_runs", [0, -1, "invalid"])
+    def test_invalid_runs_per_worker_raises(self, invalid_runs):
+        with pytest.raises(ConfigError, match=r"runs_per_worker"):
+            SlurmDL3Config.parse({"runs_per_worker": invalid_runs})
 
 
 class TestSlurmConfig:
