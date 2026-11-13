@@ -13,13 +13,13 @@ class DL2SlurmSubmitter:
 
     def __init__(
         self,
-        output_root: Path,
         output_directory: Path,
+        log_directory: Path,
         config: SlurmConfig,
         worker_command: str = "lst-dl1-to-dl2",
     ) -> None:
-        self.output_root = output_root
         self.output_directory = output_directory
+        self.log_directory = log_directory
         self.config = config
         self.worker_command = worker_command
 
@@ -34,16 +34,15 @@ class DL2SlurmSubmitter:
         if not dl1_files:
             return []
 
-        log_directory = self.output_root / self.config.log_directory
-        log_directory.mkdir(parents=True, exist_ok=True)
+        self.log_directory.mkdir(parents=True, exist_ok=True)
         resources = self.config.dl2
         slurm_arguments: dict[str, Any] = {
             "partition": self.config.partition,
             "cpus_per_task": resources.cpus_per_task,
             "mem": resources.mem,
             "time": resources.time,
-            "output": str(log_directory / "%x_%j.out"),
-            "error": str(log_directory / "%x_%j.err"),
+            "output": str(self.log_directory / "%x_%j.out"),
+            "error": str(self.log_directory / "%x_%j.err"),
         }
         if self.config.account is not None:
             slurm_arguments["account"] = self.config.account

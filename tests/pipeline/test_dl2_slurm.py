@@ -12,7 +12,11 @@ def test_submits_pending_files_in_batches(tmp_path, monkeypatch):
         env_setup="conda activate lst-env",
         dl2=SlurmDL2Config(runs_per_job=2, cpus_per_task=8, mem="40GB", time="02:00:00"),
     )
-    submitter = DL2SlurmSubmitter(tmp_path / "out", tmp_path / "out" / "dl2", config)
+    submitter = DL2SlurmSubmitter(
+        output_directory=tmp_path / "out" / "dl2",
+        log_directory=tmp_path / "logs",
+        config=config,
+    )
     pending = [Path(f"/data/dl1_LST-1.Run{run_number:05d}.h5") for run_number in (10001, 10002, 10003)]
     submitted_scripts = []
 
@@ -52,7 +56,11 @@ def test_empty_pending_submits_no_job(tmp_path, monkeypatch):
         raise AssertionError("an empty pending list must not create a SLURM job")
 
     monkeypatch.setattr(simple_slurm.Slurm, "sbatch", unexpected_submission)
-    submitter = DL2SlurmSubmitter(tmp_path / "out", tmp_path / "out" / "dl2", SlurmConfig(enabled=True))
+    submitter = DL2SlurmSubmitter(
+        output_directory=tmp_path / "out" / "dl2",
+        log_directory=tmp_path / "logs",
+        config=SlurmConfig(enabled=True),
+    )
 
     assert submitter.submit([], "/models") == []
-    assert not (tmp_path / "out" / "slurm_logs").exists()
+    assert not (tmp_path / "logs").exists()

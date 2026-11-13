@@ -186,8 +186,8 @@ class DL2Producer(DLProducer):
             return counts
 
         submitter = DL2SlurmSubmitter(
-            output_root=self.output_root,
             output_directory=self.output_dir,
+            log_directory=self.output_root / slurm_config.log_directory,
             config=slurm_config,
             worker_command=self.worker_command,
         )
