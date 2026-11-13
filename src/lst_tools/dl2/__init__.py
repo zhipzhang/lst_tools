@@ -1,4 +1,5 @@
 from .base import LSTDL2Table
+from .filter import DL2EventFilter, EnergyDependentGHCut
 from .observed import LSTObservedDL2Table
 from .simulated import LSTSimulatedDL2Table
 
@@ -7,6 +8,8 @@ LSTDL2EventTable = LSTObservedDL2Table
 LSTDL2MCTable = LSTSimulatedDL2Table
 
 __all__ = [
+    "DL2EventFilter",
+    "EnergyDependentGHCut",
     "LSTDL2EventTable",
     "LSTDL2MCTable",
     "LSTDL2Table",
