@@ -21,10 +21,7 @@ Stages
    ``[data_filter]`` cuts (and the ``[source]`` position). The selected runs
    are saved under ``data_check/`` and reused: when that file exists, it is
    loaded and the nightly files are not read again. ``--refresh-selection``
-   recomputes the selection after changing the cuts or source. With
-   ``[data_filter] away_source = true`` the target-angle cut is replaced by
-   a catalog-separation cut (``min_distance``, ``extension_factor``), so the
-   same pass selects off runs.
+   recomputes the selection after changing the cuts or source.
 2. **DL1** (``[dl1]``) — the external input; linking is the only supported
    mode today (``dl1/``).
 3. **DL2** (``[dl2]``) — either link the official DL2, or build our own by
@@ -37,6 +34,28 @@ Stages
    generated from the MC test dataset matching each DL2 file's provenance
    (``[dl3.build]``), then every run is reduced to a DL3 FITS
    observation, interpolating the IRFs to the run's pointing.
+
+Catalog-separated off runs (``away_source``)
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+To select off runs directly in stage 1 without a separate workflow, enable
+``away_source`` under ``[data_filter]``:
+
+.. code-block:: toml
+
+   [data_filter]
+   away_source = true
+   min_distance = 3.0      # deg; minimum pointing distance from point-like sources
+   extension_factor = 2.5  # extended sources add this factor times their size
+
+When ``away_source = true``, the ``[data_filter.cuts]`` target-angle range
+(``min_angle_to_source``, ``max_angle_to_source``) is disabled and pointings
+near known TeV sources in the HESS, LHAASO, HAWC, and Gamma-Cat catalogs are
+rejected instead. All subsequent stages (DL1 linking, DL2 reconstruction, and
+DL3 reduction) then operate on the selected off runs in the same way.
+
+DL3 build and SLURM execution
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
 The MC campaign is selected by ``[dl3.build] mc_dl2_directory``. This is
 a directory template: ``$NSB_LEVEL`` is replaced independently for every DL2
@@ -54,16 +73,22 @@ reduction and the gammaness cut (``gh_cut`` or ``gh_efficiency``) is carried
 inside the IRFs, so data and IRFs always agree. Shared interpolation and MC
 options stay under ``[dl3.build]``.
 
-DL3 builds follow ``RunSelection``. Selected runs without exactly one DL2
-file directly below ``dl2/`` are skipped with a warning. Unselected files are
-ignored, and an empty selection performs no work and submits no job.
+DL2 and DL3 builds follow ``RunSelection``. Selected runs without exactly one
+input file directly below ``dl1/`` or ``dl2/`` are skipped with a warning.
+Unselected files are ignored, and an empty selection performs no work and
+submits no job.
 
-The build prepares IRF interpolation grids in parallel, then reduces DL2 runs
-in batches across workers after all IRFs are ready. Workers are bounded by the
-local CPU count, or the job's CPU allocation under SLURM. With SLURM enabled,
-each named reduction writes its ``irf_config.json`` and runs inside its own
-job; ``[slurm.dl3]`` sets its worker batch size (``runs_per_worker``), CPU,
-memory, and walltime allocation.
+For each named reduction, the DL3 build prepares IRF interpolation grids in
+parallel, then reduces DL2 runs in batches across workers after all IRFs are
+ready. Workers are bounded by the local CPU count, or the job's CPU allocation
+under SLURM. With ``[slurm] enabled = true``:
+
+- **DL2** submits batched jobs (``[slurm.dl2] runs_per_job``) running
+  ``lst-dl1-to-dl2``.
+- **DL3** writes ``irfs/<reduction_name>/irf_config.json`` and submits one job
+  per named reduction running ``lst-dl2-to-dl3``; ``[slurm.dl3]`` sets its
+  worker batch size (``runs_per_worker``), CPU (``cpus_per_task``), memory,
+  and walltime allocation.
 
 Workspace layout
 ----------------
@@ -86,7 +111,7 @@ gammaness selection, ``gheff0.7`` for an energy-dependent efficiency or
 ``ghcut0.7`` for a fixed cut. Point-like IRFs also include the theta selection,
 for example ``ghcut0.7_thetacut0.2`` or ``gheff0.7_thetacont0.68``.
 Each reduction reads the IRF directory matching
-its own configuration, so incompatible IRFs never share an interpolation set.
+its own configuration, so incompatible IRFs never share an interpolation grid.
 
 Reruns are incremental: existing links are kept, existing files are reused,
 and conflicting files are never replaced. Each level's build mode has an
@@ -94,6 +119,21 @@ and conflicting files are never replaced. Each level's build mode has an
 configuration: after changing its cuts, use a new name or enable
 ``overwrite`` to avoid reusing the previous DL3 files. DL4 generation should
 select one named reduction at a time.
+
+Summarizing selected runs: ``summarize-lstana``
+-----------------------------------------------
+
+After DL3 files are available, summarize the selected runs into an ECSV or CSV
+table:
+
+.. code-block:: bash
+
+   summarize-lstana config/config.toml --analysis-dir /path/to/analysis -o run_summary.ecsv
+
+It records ``run_number``, ``date``, ``RA_PNT``, ``DEC_PNT``, ``AZ_PNT``,
+``ZE_PNT``, ``B_DELTA``, ``LIVETIME``, ``N_EVENTS``, and the ``NSB_LEVEL``
+read from DL2 provenance. When multiple DL3 reductions are configured, select
+a specific reduction with ``-r`` / ``--reduction``.
 
 Configuration
 -------------

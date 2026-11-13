@@ -56,22 +56,21 @@ For LST DL2 files, use :func:`~lst_tools.bkg.sky_offset_events_from_lstdl2`:
 
 .. code-block:: python
 
-   from lst_tools.dl2 import LSTObservedDL2Table
+   from lst_tools.dl2 import DL2EventFilter, LSTObservedDL2Table
    from lst_tools.bkg import sky_offset_events_from_lstdl2
 
-   dl2 = LSTObservedDL2Table.from_paths(["dl2_Run01234.h5"])
+   dl2 = LSTObservedDL2Table("dl2_LST-1.Run01234.h5")
    events = sky_offset_events_from_lstdl2(dl2)
 
-An optional ``event_filter`` receives the full DL2 DataFrame and returns the
+An optional ``event_filter`` (such as :class:`~lst_tools.dl2.DL2EventFilter` or
+any callable) receives the full DL2 DataFrame and returns the
 rows to retain. The complete run elapsed time (``dl2.elapsed_time``) is preserved,
 so the filter models event selection without changing exposure:
 
 .. code-block:: python
 
-   events = sky_offset_events_from_lstdl2(
-       dl2,
-       event_filter=lambda data: data.loc[data["reco_energy"] > 1],
-   )
+   event_filter = DL2EventFilter(intensity_cut=80, gh_cut=0.7)
+   events = sky_offset_events_from_lstdl2(dl2, event_filter=event_filter)
 
 DL3 events can be converted with :func:`~lst_tools.bkg.lst_adapter.sky_offset_events_from_dl3`:
 

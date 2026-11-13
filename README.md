@@ -64,7 +64,10 @@ The stages:
 1. **Select runs** — nightly DataCheck statistics filtered by the
    `[data_filter]` cuts (and the `[source]` position). The selected runs are
    saved under `data_check/` and reused by later runs; `--refresh-selection`
-   recomputes them.
+   recomputes them. With `[data_filter] away_source = true`, the target-angle
+   range is disabled and pointings near known TeV sources in the HESS, LHAASO,
+   HAWC, and Gamma-Cat catalogs are rejected (`min_distance`,
+   `extension_factor`), selecting off runs directly within `init-lstana`.
 2. **DL1** (`[dl1]`) — the external input; linking is the only supported
    mode today (`dl1/`).
 3. **DL2** (`[dl2]`) — either link the official DL2, or build our own by
@@ -97,17 +100,17 @@ quality cuts differ; `<irf_type>` is `point` or `full-enclosure`, and
 IRFs also include the theta selection (for example `ghcut0.7_thetacut0.2` or
 `gheff0.7_thetacont0.68`).
 
-DL3 builds follow `RunSelection`: each selected run must have exactly one DL2
-file directly below `dl2/`. Missing inputs stop the build with a list of runs;
-ambiguous matches are rejected. Unselected files are ignored. The same
-selected inputs are saved with a SLURM build and checked again when its worker
-starts.
+DL2 and DL3 builds follow `RunSelection`: selected runs with missing or
+ambiguous input files are skipped with a warning, and unselected files are
+ignored. For each named DL3 reduction, the build first generates the required
+IRF interpolation grids in parallel, then reduces the selected DL2 runs in
+batches (`runs_per_worker`) across worker processes.
 
-DL3 builds prepare IRF interpolation grids in parallel, then run named
-reductions in parallel after all IRFs are ready. Workers are bounded by the
-local CPU count, or the job's CPU allocation under SLURM. With SLURM enabled,
-the same build runs inside one job; `[slurm.dl3]` sets its CPU, memory, and
-walltime allocation.
+When `[slurm] enabled = true`, compute-heavy builds are submitted to SLURM:
+DL2 submits batched reconstruction jobs (`[slurm.dl2] runs_per_job`) running
+`lst-dl1-to-dl2`, and DL3 writes `irfs/<reduction_name>/irf_config.json` and
+submits one job per named reduction (`[slurm.dl3] cpus_per_task`,
+`runs_per_worker`) running `lst-dl2-to-dl3`.
 
 Reruns are incremental: existing links are kept, existing files are reused,
 and conflicting files are never replaced (each level has an `overwrite`
@@ -133,24 +136,6 @@ and the NSB level read from DL2 provenance. When multiple DL3 reductions are
 present, the first configured reduction is selected by default; a specific reduction
 can be chosen with `-r`/`--reduction` or `--dl3-dir`. Use `--overwrite` to replace
 an existing output table.
-
-## Preparing catalog-separated off runs: `prepare-offruns`
-
-```bash
-prepare-offruns config/config.toml \
-  --output /path/to/offruns \
-  --with-dl1 \
-  --with-dl2 \
-  --min-separation 3 \
-  --extension-factor 2.5
-```
-
-Applies the configured basic and advanced quality cuts with the
-target-angle range disabled, then rejects pointings near HESS, LHAASO,
-and HAWC catalog sources. Always writes
-`data_check/DL1_datacheck_offruns.h5`; `--with-dl1` (`--with-dl` is an
-alias) and `--with-dl2` additionally create idempotent data links under
-`dl1/` and `dl2/`.
 
 ## Development
 
