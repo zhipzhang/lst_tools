@@ -10,8 +10,11 @@ from lstchain.tools.lstchain_dl1_to_dl2 import DL1ToDL2Tool
 from lst_tools.dl1.nsb import resolve_dl1_nsb_level
 
 
-# REFACTOR: $NSB_LEVEL also has a constant in pipeline.configs. Use one vocabulary and
-# test this planning function directly: literal template, resolved groups, and input order.
+def dl2_output_path(dl1_path: str | PathLike[str], output_directory: str | PathLike[str]) -> Path:
+    dl1_path = Path(dl1_path)
+    return Path(output_directory) / dl1_path.name.replace("dl1", "dl2", 1)
+
+
 def group_dl1_by_model_directory(
     files: Iterable[str | PathLike[str]],
     model_directory_template: str | PathLike[str],
@@ -30,9 +33,12 @@ def group_dl1_by_model_directory(
     return groups
 
 
-# REFACTOR: Keep DL1ToDL2Tool/run_tool behind this single external boundary. Make produced
-# output paths explicit to callers and tests.
-def dl1_to_dl2_batch(files: Iterable[str | PathLike[str]], out_root, model_directory, overwrite=False):
+def dl1_to_dl2_batch(
+    files: Iterable[str | PathLike[str]],
+    output_directory: str | PathLike[str],
+    model_directory: str | PathLike[str],
+    overwrite: bool = False,
+) -> None:
     input_files = [Path(file).resolve() for file in files]
     for input_file in input_files:
         if not input_file.is_file():
@@ -40,23 +46,23 @@ def dl1_to_dl2_batch(files: Iterable[str | PathLike[str]], out_root, model_direc
     tool = DL1ToDL2Tool(
         input_files=input_files,
         path_models=Path(model_directory),
-        output_dir=Path(out_root),
+        output_dir=Path(output_directory),
         overwrite=overwrite,
     )
     run_tool(tool)
 
 
-# REFACTOR: Define empty-input behavior. A literal template currently runs one empty batch,
-# while an NSB template runs none; both create out_root. Also centralize DL1->DL2 output
-# naming instead of repeating replace("dl1", "dl2", 1) here and in DL2Producer.
 def reconstruct_dl1_to_dl2(
     files: Iterable[str | PathLike[str]],
-    out_root: str | PathLike[str],
+    output_directory: str | PathLike[str],
     model_directory_template: str | PathLike[str],
     overwrite: bool = False,
-) -> None:
-    """Reconstruct DL1 files, grouping them by their resolved RF model directory."""
+) -> list[Path]:
+    """Reconstruct DL1 files and return the DL2 outputs available afterwards."""
     dl1_files = [Path(file) for file in files]
+    if not dl1_files:
+        return []
+
     missing_files = [file for file in dl1_files if not file.is_file()]
     if missing_files:
         raise FileNotFoundError(f"The following input files do not exist: {missing_files}")
@@ -66,7 +72,10 @@ def reconstruct_dl1_to_dl2(
     if missing_models:
         raise FileNotFoundError(f"Model directories do not exist or are not directories: {missing_models}")
 
-    out_root = Path(out_root)
-    out_root.mkdir(parents=True, exist_ok=True)
+    output_directory = Path(output_directory)
+    output_directory.mkdir(parents=True, exist_ok=True)
     for model_directory, group in model_groups.items():
-        dl1_to_dl2_batch(group, out_root, model_directory, overwrite=overwrite)
+        dl1_to_dl2_batch(group, output_directory, model_directory, overwrite=overwrite)
+
+    output_paths = [dl2_output_path(dl1_file, output_directory) for dl1_file in dl1_files]
+    return [output_path for output_path in output_paths if output_path.is_file()]

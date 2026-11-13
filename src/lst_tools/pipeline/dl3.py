@@ -5,7 +5,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Literal
 
-from lst_tools.dl2 import LSTDL2EventTable
+from lst_tools.dl2 import LSTObservedDL2Table
 from lst_tools.dl3 import DL3Reducer
 from lst_tools.finder import MC_DL2_PATH, MCDL2Attribute, find_mc_dl2_files, parse_run_id
 from lst_tools.irf import IRFConfig, IRFGenerator, IRFNode, MCNode, irf_group_path
@@ -45,7 +45,7 @@ class DL2Observation:
         return tuple(observations)
 
     def mc_group(self) -> "MCGroup":
-        table = LSTDL2EventTable(self.path)
+        table = LSTObservedDL2Table(self.path)
         if table.nsb_level is None or table.dec_line is None:
             raise ValueError(f"Could not derive the MC group (NSB tuning, declination line) from {self.path}")
         return MCGroup(table.nsb_level, table.dec_line)

@@ -3,9 +3,9 @@ from pathlib import Path
 import pandas as pd
 import pytest
 
-from lst_tools.dl2 import LSTDL2EventTable
-from lst_tools.dl2 import dl2table as dl2table_module
-from lst_tools.dl2 import dl2table_base as dl2table_base_module
+from lst_tools.dl2 import LSTObservedDL2Table
+from lst_tools.dl2 import base as base_module
+from lst_tools.dl2 import observed as observed_module
 
 
 @pytest.fixture
@@ -42,10 +42,10 @@ def patched_dl2_io(monkeypatch):
         calls["effective_time_count"] = calls.get("effective_time_count", 0) + 1
         return 12.5, 15.0
 
-    monkeypatch.setattr(dl2table_base_module.pd, "read_hdf", read_hdf)
-    monkeypatch.setattr(dl2table_module, "get_effective_time", get_effective_time)
-    monkeypatch.setattr(dl2table_base_module, "read_dl2_provenance", lambda filename: provenance)
-    monkeypatch.setattr(dl2table_module, "get_intensity_cut", lambda data: 21.0)
+    monkeypatch.setattr(base_module.pd, "read_hdf", read_hdf)
+    monkeypatch.setattr(observed_module, "get_effective_time", get_effective_time)
+    monkeypatch.setattr(base_module, "read_dl2_provenance", lambda filename: provenance)
+    monkeypatch.setattr(observed_module, "get_intensity_cut", lambda data: 21.0)
 
     return events, calls
 
@@ -54,58 +54,57 @@ def test_loads_events_and_provenance(patched_dl2_io):
     events, calls = patched_dl2_io
     filename = Path("/data/dl2_LST-1.Run00042.h5")
 
-    table = LSTDL2EventTable(filename)
+    table = LSTObservedDL2Table(filename)
 
-    assert table.run_id == 42
+    assert table.run_number == 42
     assert "hdf" not in calls
-    assert table.data is events
-    assert table.t_eff == pytest.approx(12.5)
-    assert table.t_elapsed == pytest.approx(15.0)
+    assert table.events is events
+    assert table.effective_time == pytest.approx(12.5)
+    assert table.elapsed_time == pytest.approx(15.0)
     assert calls["hdf"][0] == str(filename)
 
 
 def test_provenance_metadata_does_not_load_events(patched_dl2_io):
     _, calls = patched_dl2_io
-    table = LSTDL2EventTable("/data/dl2_LST-1.Run00042.h5")
+    table = LSTObservedDL2Table("/data/dl2_LST-1.Run00042.h5")
 
     assert table.nsb_level == pytest.approx(0.22)
     assert table.dec_line == 3476
-    assert table.tailcut_level == (10, 5)
+    assert table.tailcuts_level == (10, 5)
     assert "hdf" not in calls
 
 
 def test_event_derived_properties_share_cached_events(patched_dl2_io):
     events, calls = patched_dl2_io
-    table = LSTDL2EventTable("/data/dl2_LST-1.Run00042.h5")
+    table = LSTObservedDL2Table("/data/dl2_LST-1.Run00042.h5")
 
-    assert table.dl2_params is events
-    assert table.data is events
-    assert table.t_eff == pytest.approx(12.5)
-    assert table.t_elapsed == pytest.approx(15.0)
+    assert table.events is events
+    assert table.effective_time == pytest.approx(12.5)
+    assert table.elapsed_time == pytest.approx(15.0)
     assert table.pointing is table.pointing
     assert calls["hdf_count"] == 1
     assert calls["effective_time_count"] == 1
 
 
 def test_parses_processing_metadata(patched_dl2_io):
-    table = LSTDL2EventTable("/data/dl2_LST-1.Run00042.h5")
+    table = LSTObservedDL2Table("/data/dl2_LST-1.Run00042.h5")
 
-    assert table.tailcut_level == (10, 5)
+    assert table.tailcuts_level == (10, 5)
     assert table.nsb_level == pytest.approx(0.22)
     assert table.dec_line == 3476
-    assert table.intensity_cuts == pytest.approx(30.0)
+    assert table.intensity_cut == pytest.approx(30.0)
 
 
 @pytest.mark.parametrize(
     ("intensity_cut", "expected"),
     [(21.0, 30.0), (50.0, 50.0), (50.1, 60.0)],
 )
-def test_intensity_cuts_rounds_up_to_next_ten(patched_dl2_io, monkeypatch, intensity_cut, expected):
-    monkeypatch.setattr(dl2table_module, "get_intensity_cut", lambda data: intensity_cut)
+def test_intensity_cut_rounds_up_to_next_ten(patched_dl2_io, monkeypatch, intensity_cut, expected):
+    monkeypatch.setattr(observed_module, "get_intensity_cut", lambda data: intensity_cut)
 
-    table = LSTDL2EventTable("/data/dl2_LST-1.Run00042.h5")
+    table = LSTObservedDL2Table("/data/dl2_LST-1.Run00042.h5")
 
-    assert table.intensity_cuts == pytest.approx(expected)
+    assert table.intensity_cut == pytest.approx(expected)
 
 
 @pytest.mark.parametrize(
@@ -113,7 +112,7 @@ def test_intensity_cuts_rounds_up_to_next_ten(patched_dl2_io, monkeypatch, inten
     [("dec_931", 931), ("dec_2276", 2276), ("dec_min_413", -413), ("dec_min_1802", -1802)],
 )
 def test_parses_declination_line(directory_name, expected):
-    table = object.__new__(LSTDL2EventTable)
+    table = object.__new__(LSTObservedDL2Table)
     table.rf_model_directory = f"/models/nsb_tuning_0.81/{directory_name}"
 
     assert table.dec_line == expected
@@ -123,17 +122,17 @@ def test_rejects_filename_without_run_number_before_reading_file(monkeypatch):
     def unexpected_read(*args, **kwargs):
         pytest.fail("DL2 file should not be read when its run number is invalid")
 
-    monkeypatch.setattr(dl2table_base_module.pd, "read_hdf", unexpected_read)
+    monkeypatch.setattr(base_module.pd, "read_hdf", unexpected_read)
 
     with pytest.raises(ValueError, match="run number"):
-        LSTDL2EventTable("/data/dl2_without_run_number.h5")
+        LSTObservedDL2Table("/data/dl2_without_run_number.h5")
 
 
 def test_read_dl2_events_adds_gh_score_alias_of_gammaness(monkeypatch):
     events = pd.DataFrame({"gammaness": [0.5, 0.9]})
-    monkeypatch.setattr(dl2table_base_module.pd, "read_hdf", lambda filename, key: events)
+    monkeypatch.setattr(base_module.pd, "read_hdf", lambda filename, key: events)
 
-    result = dl2table_base_module.LSTDL2TableBase.read_dl2_events("dummy.h5")
+    result = base_module.LSTDL2Table.read_dl2_events("dummy.h5")
 
     assert result["gh_score"].tolist() == [0.5, 0.9]
     assert result["gammaness"].tolist() == [0.5, 0.9]
@@ -141,8 +140,8 @@ def test_read_dl2_events_adds_gh_score_alias_of_gammaness(monkeypatch):
 
 def test_read_dl2_events_keeps_an_existing_gh_score_column(monkeypatch):
     events = pd.DataFrame({"gammaness": [0.5], "gh_score": [0.7]})
-    monkeypatch.setattr(dl2table_base_module.pd, "read_hdf", lambda filename, key: events)
+    monkeypatch.setattr(base_module.pd, "read_hdf", lambda filename, key: events)
 
-    result = dl2table_base_module.LSTDL2TableBase.read_dl2_events("dummy.h5")
+    result = base_module.LSTDL2Table.read_dl2_events("dummy.h5")
 
     assert result["gh_score"].tolist() == [0.7]

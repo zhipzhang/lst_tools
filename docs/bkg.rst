@@ -56,14 +56,14 @@ For LST DL2 files, use :func:`~lst_tools.bkg.sky_offset_events_from_lstdl2`:
 
 .. code-block:: python
 
-   from lst_tools.dl2 import LSTDL2EventTable
+   from lst_tools.dl2 import LSTObservedDL2Table
    from lst_tools.bkg import sky_offset_events_from_lstdl2
 
-   dl2 = LSTDL2EventTable.from_paths(["dl2_Run01234.h5"])
+   dl2 = LSTObservedDL2Table.from_paths(["dl2_Run01234.h5"])
    events = sky_offset_events_from_lstdl2(dl2)
 
 An optional ``event_filter`` receives the full DL2 DataFrame and returns the
-rows to retain. The complete run elapsed time (``dl2.t_elapsed``) is preserved,
+rows to retain. The complete run elapsed time (``dl2.elapsed_time``) is preserved,
 so the filter models event selection without changing exposure:
 
 .. code-block:: python

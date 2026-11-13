@@ -3,8 +3,8 @@ from types import SimpleNamespace
 import astropy.units as u
 import pytest
 
-from lst_tools.dl2 import LSTDL2MCTable
-from lst_tools.dl2.dl2table_base import LSTDL2TableBase
+from lst_tools.dl2 import LSTSimulatedDL2Table
+from lst_tools.dl2.base import LSTDL2Table
 
 MC_FILE_NAME = (
     "/fefs/aswg/data/mc/DL2/AllSky/20250212_v0.10.17_allsky_interp_dl2_irfs_nsb_0.22"
@@ -14,7 +14,7 @@ MC_FILE_NAME = (
 
 
 def test_parses_pointing_node():
-    table = object.__new__(LSTDL2MCTable)
+    table = object.__new__(LSTSimulatedDL2Table)
     table.file_name = MC_FILE_NAME
 
     assert table.pointing_ze.to_value("deg") == pytest.approx(10.0)
@@ -22,7 +22,7 @@ def test_parses_pointing_node():
 
 
 def test_rejects_path_without_pointing_node():
-    table = object.__new__(LSTDL2MCTable)
+    table = object.__new__(LSTSimulatedDL2Table)
     table.file_name = "/data/dl2_Gamma_test_merged.h5"
 
     with pytest.raises(ValueError, match="pointing zenith"):
@@ -50,13 +50,13 @@ def test_viewcone_selection(monkeypatch, viewcone_min, viewcone_max, expected_mi
         max_viewcone_radius=viewcone_max * u.deg,
     )
     monkeypatch.setattr(
-        LSTDL2TableBase,
+        LSTDL2Table,
         "__init__",
         lambda self, file_name: setattr(self, "file_name", str(file_name)),
     )
-    monkeypatch.setattr("lst_tools.dl2.dl2mctable.read_simu_info_merged_hdf5", lambda _: simu_config)
+    monkeypatch.setattr("lst_tools.dl2.simulated.read_simu_info_merged_hdf5", lambda _: simu_config)
 
-    table = LSTDL2MCTable("dummy.h5")
+    table = LSTSimulatedDL2Table("dummy.h5")
 
-    assert table.sim_info.viewcone_min == expected_min * u.deg
-    assert table.sim_info.viewcone_max == expected_max * u.deg
+    assert table.simulation_info.viewcone_min == expected_min * u.deg
+    assert table.simulation_info.viewcone_max == expected_max * u.deg

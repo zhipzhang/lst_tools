@@ -9,7 +9,7 @@ from lstchain.paths import dl2_to_dl3_filename
 from lstchain.tools.lstchain_create_dl3_file import DataReductionFITSWriter
 from traitlets.config import Config
 
-from lst_tools.dl2 import LSTDL2EventTable
+from lst_tools.dl2 import LSTObservedDL2Table
 from lst_tools.irf import IRFConfig, irf_group_path
 
 __all__ = ["DL3Reducer"]
@@ -110,7 +110,7 @@ class DL3Reducer:
         ``IRFNode.relative_path``, so the reduction reads exactly the IRFs
         generated for its own gammaness selection.
         """
-        table = LSTDL2EventTable(dl2_file)
+        table = LSTObservedDL2Table(dl2_file)
         if table.nsb_level is None or table.dec_line is None:
             raise ValueError(f"Could not derive the MC group (NSB tuning, declination line) from {dl2_file}")
         irf_dir = self.irfs_root / irf_group_path(

@@ -4,14 +4,10 @@ import warnings
 from os import PathLike
 from pathlib import Path
 
+from lst_tools.dl2.reconstruction import dl2_output_path
 from lst_tools.finder import parse_run_id
 
 from .selection import RunSelection
-
-
-def dl2_output_path(dl1_path: str | PathLike[str], output_directory: str | PathLike[str]) -> Path:
-    dl1_path = Path(dl1_path)
-    return Path(output_directory) / dl1_path.name.replace("dl1", "dl2", 1)
 
 
 def find_pending_dl1_files(

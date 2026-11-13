@@ -11,7 +11,7 @@ from astropy.time import Time
 from gammapy.data import EventList
 from gammapy.utils.coordinates import FoVAltAzFrame, FoVICRSFrame
 
-from lst_tools.dl2 import LSTDL2EventTable, LSTDL2MCTable
+from lst_tools.dl2 import LSTObservedDL2Table, LSTSimulatedDL2Table
 
 from ..location import LST_LOCATION
 from ..utils import altaz_to_icrs, icrs_to_altaz
@@ -65,7 +65,7 @@ def _mean_dl2_pointing(data: pd.DataFrame) -> tuple[Time, u.Quantity, u.Quantity
 
 
 def sky_offset_events_from_lstdl2(
-    dl2: LSTDL2EventTable,
+    dl2: LSTObservedDL2Table,
     event_filter: Callable[[pd.DataFrame], pd.DataFrame] | None = None,
     *,
     location: EarthLocation = LST_LOCATION,
@@ -76,16 +76,15 @@ def sky_offset_events_from_lstdl2(
     With ``frame="icrs"``, all events are centered on the fixed run pointing.
     With ``frame="altaz"``, each event is centered on its own telescope
     pointing at its trigger time. Filtering changes the selected events but
-    preserves the observation's full elapsed time (``t_elapsed``, including
-    dead time).
+    preserves the observation's full elapsed time, including dead time.
     """
     try:
-        data = dl2.data
-        livetime = u.Quantity(dl2.t_elapsed, u.s)
+        data = dl2.events
+        livetime = u.Quantity(dl2.elapsed_time, u.s)
     except AttributeError as error:
-        raise TypeError("dl2 must expose 'data' and 't_elapsed' attributes") from error
+        raise TypeError("dl2 must expose 'events' and 'elapsed_time' attributes") from error
     if not isinstance(data, pd.DataFrame):
-        raise TypeError("dl2.data must be a pandas DataFrame")
+        raise TypeError("dl2.events must be a pandas DataFrame")
 
     mean_time, pointing_alt, pointing_az = _mean_dl2_pointing(data)
     selected = event_filter(data) if event_filter is not None else data
@@ -139,7 +138,7 @@ def sky_offset_events_from_lstdl2(
 
 
 def sky_offset_events_from_lstmcdl2(
-    dl2: LSTDL2MCTable,
+    dl2: LSTSimulatedDL2Table,
     time: Time = _DEFAULT_MC_TIME,
     event_filter: Callable[[pd.DataFrame], pd.DataFrame] | None = None,
     *,
@@ -167,7 +166,7 @@ def sky_offset_events_from_lstmcdl2(
         pointing_az=pointing.az,
     )
     livetime = 50 * u.h
-    selected = event_filter(dl2.data) if event_filter is not None else dl2.data
+    selected = event_filter(dl2.events) if event_filter is not None else dl2.events
     if selected.empty:
         return SkyOffsetEvents(livetime=livetime, frame=observation_frame)
 

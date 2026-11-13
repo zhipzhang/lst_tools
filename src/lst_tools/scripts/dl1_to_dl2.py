@@ -55,18 +55,18 @@ def main(argv: list[str] | None = None) -> None:
     args = parser.parse_args(argv)
 
     try:
-        reconstruct_dl1_to_dl2(
+        output_paths = reconstruct_dl1_to_dl2(
             files=args.input_files,
-            out_root=args.output_dir,
+            output_directory=args.output_dir,
             model_directory_template=args.model_dir,
             overwrite=args.overwrite,
         )
     except FileNotFoundError as error:
         parser.error(str(error))
-    # REFACTOR: reconstruct_dl1_to_dl2 returns no outputs, so this success message can
-    # overstate what was produced. Return output paths from the canonical function and
-    # report built/skipped/failed files instead of counting input arguments.
-    print(f"Reconstructed {len(args.input_files)} DL1 file(s) into {args.output_dir}")
+    print(
+        f"Reconstruction finished: {len(output_paths)} of {len(args.input_files)} "
+        f"input file(s) have DL2 outputs in {args.output_dir}"
+    )
 
 
 if __name__ == "__main__":

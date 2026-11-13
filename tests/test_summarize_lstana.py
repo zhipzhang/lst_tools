@@ -27,7 +27,7 @@ def _patch_readers(monkeypatch):
         "POINTING": {"B_DELTA": "52.34995 deg"},
     }
     monkeypatch.setattr(summarize_lstana.fits, "getheader", lambda path, extname: headers[extname])
-    monkeypatch.setattr(summarize_lstana, "LSTDL2EventTable", lambda path: SimpleNamespace(nsb_level=0.22))
+    monkeypatch.setattr(summarize_lstana, "LSTObservedDL2Table", lambda path: SimpleNamespace(nsb_level=0.22))
 
 
 def test_summarize_selected_run(tmp_path, monkeypatch):

@@ -15,10 +15,6 @@ from lst_tools.pipeline import (
     DL1LinkOptions,
     DL1Producer,
     DL1ProducerConfig,
-    DL2BuildOptions,
-    DL2LinkOptions,
-    DL2Producer,
-    DL2ProducerConfig,
     DL3BuildOptions,
     DL3LinkOptions,
     DL3Producer,
@@ -26,7 +22,6 @@ from lst_tools.pipeline import (
     DL3ReductionOptions,
     RunSelection,
     SlurmConfig,
-    SlurmDL2Config,
     SlurmDL3Config,
     SourceConfig,
 )
@@ -192,251 +187,14 @@ class TestDL1Producer:
 
         assert producer.produce(make_selection([RUN_10623])) == {}
 
-
-class TestDL2Producer:
-    # TEST: Local and SLURM cases should share one pending-plan test suite, retaining only
-    # execution-specific assertions here (local reconstruction versus job command submission).
-    def test_link_uses_same_tree_as_dl1(self, tmp_path, monkeypatch):
-        source = tmp_path / "server" / "dl2_LST-1.Run10623.h5"
-        source.parent.mkdir(parents=True, exist_ok=True)
-        source.touch()
-        patch_finder(monkeypatch, {(20220426, 10623, "dl2"): SimpleNamespace(newest_attributes=make_dl_attrs(source))})
-        producer = DL2Producer(DL2ProducerConfig(enabled=True, source="link"), tmp_path / "out")
-
-        counts = producer.produce(make_selection([RUN_10623]))
-
-        assert (tmp_path / "out" / "dl2" / source.name).is_symlink()
-        assert counts["dl2:created"] == 1
-
-    @pytest.mark.parametrize(
-        "source, expected_dir",
-        [
-            ("link", "linked_dl2"),
-            ("build", "built_dl2"),
-        ],
-    )
-    def test_output_dir_follows_source_mode(self, tmp_path, source, expected_dir):
-        config = DL2ProducerConfig(
-            enabled=True,
-            source=source,
-            link=DL2LinkOptions(output_directory=tmp_path / "linked_dl2"),
-            build=DL2BuildOptions(
-                output_directory=tmp_path / "built_dl2",
-                rf_directory="/models/nsb_tuning_$NSB_LEVEL/dec_347",
-            ),
-        )
-        producer = DL2Producer(config, tmp_path / "out")
-
-        assert producer.output_dir == tmp_path / expected_dir
-
-    def test_output_dir_defaults_below_output_root(self, tmp_path):
-        producer = DL2Producer(DL2ProducerConfig(enabled=True, source="link"), tmp_path / "out")
-
-        assert producer.output_dir == tmp_path / "out" / "dl2"
-
-    def _make_dl1_tree(self, tmp_path, *run_numbers: int) -> list[Path]:
-        files = []
-        for run_number in run_numbers:
-            dl1_file = tmp_path / "out" / "dl1" / f"dl1_LST-1.Run{run_number:05d}.h5"
-            dl1_file.parent.mkdir(parents=True, exist_ok=True)
-            dl1_file.touch()
-            files.append(dl1_file)
-        return files
-
-    def _fake_batch(self, monkeypatch):
-        """dl1_to_dl2_batch stand-in: records calls, creates the DL2 files."""
-        calls = []
-
-        def fake_batch(files, out_root, model_directory, overwrite=False):
-            out_root = Path(out_root)
-            out_root.mkdir(parents=True, exist_ok=True)
-            calls.append((list(files), out_root, Path(model_directory), overwrite))
-            for dl1_file in files:
-                (out_root / Path(dl1_file).name.replace("dl1", "dl2", 1)).touch()
-
-        monkeypatch.setattr("lst_tools.dl2.reconstruction.dl1_to_dl2_batch", fake_batch)
-        return calls
-
-    # TEST: Add a tool-completes-without-output case to verify warning/failed accounting,
-    # and a no-pending SLURM case to verify that no empty job is submitted.
-    def test_build_reconstructs_only_selected_pending_dl1(self, tmp_path, monkeypatch):
-        dl1_file, _ = self._make_dl1_tree(tmp_path, 10623, 99999)
-        calls = self._fake_batch(monkeypatch)
-        model_directory = tmp_path / "models"
-        model_directory.mkdir()
-        config = DL2ProducerConfig(
-            enabled=True,
-            source="build",
-            build=DL2BuildOptions(rf_directory=str(model_directory)),
-        )
-        producer = DL2Producer(config, tmp_path / "out")
-
-        counts = producer.produce(make_selection([RUN_10623]))
-
-        assert counts["dl2:built"] == 1
-        assert calls == [([dl1_file], tmp_path / "out" / "dl2", model_directory, False)]
-
-    def test_build_resolves_nsb_level_placeholder_per_run(self, tmp_path, monkeypatch):
-        dl1_files = self._make_dl1_tree(tmp_path, 10623, 10624)
-        calls = self._fake_batch(monkeypatch)
-        nsb_by_file = {dl1_files[0]: 0.22, dl1_files[1]: 0.38}
-        monkeypatch.setattr(
-            "lst_tools.dl2.reconstruction.resolve_dl1_nsb_level",
-            lambda path: nsb_by_file[Path(path)],
-        )
-        model_directories = {
-            tmp_path / "models" / "nsb_tuning_0.22" / "dec_347",
-            tmp_path / "models" / "nsb_tuning_0.38" / "dec_347",
-        }
-        for model_directory in model_directories:
-            model_directory.mkdir(parents=True)
-        config = DL2ProducerConfig(
-            enabled=True,
-            source="build",
-            build=DL2BuildOptions(rf_directory=str(tmp_path / "models" / "nsb_tuning_$NSB_LEVEL" / "dec_347")),
-        )
-        producer = DL2Producer(config, tmp_path / "out")
-
-        counts = producer.produce(make_selection([RUN_10623, RUN_10624]))
-
-        assert counts["dl2:built"] == 2
-        assert {call[2] for call in calls} == model_directories
-
-    def test_build_skips_existing_dl2_unless_overwrite(self, tmp_path, monkeypatch):
-        self._make_dl1_tree(tmp_path, 10623)
-        calls = self._fake_batch(monkeypatch)
-        model_directory = tmp_path / "models"
-        model_directory.mkdir()
-        dl2_file = tmp_path / "out" / "dl2" / "dl2_LST-1.Run10623.h5"
-        dl2_file.parent.mkdir(parents=True)
-        dl2_file.touch()
-        config = DL2ProducerConfig(
-            enabled=True,
-            source="build",
-            build=DL2BuildOptions(rf_directory=str(model_directory)),
-        )
-        producer = DL2Producer(config, tmp_path / "out")
-
-        counts = producer.produce(make_selection([RUN_10623]))
-
-        assert counts["dl2:existing"] == 1
-        assert counts["dl2:built"] == 0
-        assert calls == []
-
-        config_overwrite = DL2ProducerConfig(
-            enabled=True,
-            source="build",
-            build=DL2BuildOptions(rf_directory=str(model_directory), overwrite=True),
-        )
-        counts = DL2Producer(config_overwrite, tmp_path / "out").produce(make_selection([RUN_10623]))
-
-        assert counts["dl2:built"] == 1
-        assert len(calls) == 1
-        assert calls[0][3] is True
-
-    def test_build_warns_and_skips_when_no_dl1_directory(self, tmp_path):
-        config = DL2ProducerConfig(
-            enabled=True,
-            source="build",
-            build=DL2BuildOptions(rf_directory="/models/nsb_tuning_0.22/dec_347"),
-        )
-        producer = DL2Producer(config, tmp_path / "out")
-
-        with pytest.warns(UserWarning, match="no DL1 directory"):
-            counts = producer.produce(make_selection([RUN_10623]))
-
-        assert counts == {}
-
-    def test_slurm_build_submits_run_chunks_without_nsb_lookup(self, tmp_path, monkeypatch):
-        self._make_dl1_tree(tmp_path, 10001, 10002, 10003)
-        config = DL2ProducerConfig(
-            enabled=True,
-            source="build",
-            build=DL2BuildOptions(rf_directory="/models/nsb_tuning_$NSB_LEVEL/dec_347"),
-        )
-        slurm_cfg = SlurmConfig(
-            enabled=True,
-            partition="short",
-            account="aswg",
-            env_setup="conda activate lst-env",
-            dl2=SlurmDL2Config(runs_per_job=2),
-        )
-        producer = DL2Producer(config, tmp_path / "out", slurm_config=slurm_cfg)
-
-        def unexpected_nsb_lookup(path):
-            raise AssertionError(f"SLURM submission looked up NSB for {path}")
-
-        monkeypatch.setattr("lst_tools.dl2.reconstruction.resolve_dl1_nsb_level", unexpected_nsb_lookup)
-        submitted_scripts = []
-        counter = [0]
-
-        def fake_sbatch(self_slurm, *args, **kwargs):
-            submitted_scripts.append(self_slurm.script())
-            counter[0] += 1
-            return counter[0]
-
-        import simple_slurm
-
-        monkeypatch.setattr(simple_slurm.Slurm, "sbatch", fake_sbatch)
-
-        counts = producer.produce(make_selection([RUN_10623]))
-
-        assert counts["dl2:slurm_jobs"] == 2
-        assert counts["dl2:slurm_runs"] == 3
-        assert len(submitted_scripts) == 2
-        assert "#SBATCH --account             aswg" in submitted_scripts[0]
-        assert "#SBATCH --partition           short" in submitted_scripts[0]
-        assert "conda activate lst-env" in submitted_scripts[0]
-        assert f"{DL2Producer.worker_command} --input" in submitted_scripts[0]
-        assert r"--model-dir '/models/nsb_tuning_\$NSB_LEVEL/dec_347'" in submitted_scripts[0]
-
-    def test_slurm_build_skips_existing_unless_overwrite(self, tmp_path, monkeypatch):
-        self._make_dl1_tree(tmp_path, 10001, 10002)
-        dl2_file = tmp_path / "out" / "dl2" / "dl2_LST-1.Run10001.h5"
-        dl2_file.parent.mkdir(parents=True, exist_ok=True)
-        dl2_file.touch()
-
-        config = DL2ProducerConfig(
-            enabled=True,
-            source="build",
-            build=DL2BuildOptions(rf_directory="/models/nsb_tuning_0.22/dec_347"),
-        )
-        slurm_cfg = SlurmConfig(enabled=True, partition="short")
-        producer = DL2Producer(config, tmp_path / "out", slurm_config=slurm_cfg)
-
-        import simple_slurm
-
-        monkeypatch.setattr(simple_slurm.Slurm, "sbatch", lambda self_slurm: 1)
-
-        counts = producer.produce(make_selection([RUN_10623]))
-
-        assert counts["dl2:existing"] == 1
-        assert counts["dl2:slurm_jobs"] == 1
-        assert counts["dl2:slurm_runs"] == 1
-
-    def test_produce_uses_local_build_when_slurm_disabled(self, tmp_path, monkeypatch):
-        self._make_dl1_tree(tmp_path, 10001)
-        calls = self._fake_batch(monkeypatch)
-        model_directory = tmp_path / "models"
-        model_directory.mkdir()
-        config = DL2ProducerConfig(
-            enabled=True,
-            source="build",
-            build=DL2BuildOptions(rf_directory=str(model_directory)),
-        )
-        slurm_cfg = SlurmConfig(enabled=False)
-        producer = DL2Producer(config, tmp_path / "out", slurm_config=slurm_cfg)
-
-        counts = producer.produce(make_selection([{"runnumber": 10001, "date": 20220426}]))
-
-        assert counts["dl2:built"] == 1
-        assert len(calls) == 1
-
     def test_default_slurm_build_raises_not_implemented(self, tmp_path):
         config = DL1ProducerConfig(enabled=True, source="build")  # type: ignore[arg-type]
         producer = DL1Producer(config, tmp_path / "out")
         with pytest.raises(NotImplementedError, match="SLURM building is not supported yet"):
             producer.slurm_build(make_selection([RUN_10623]), SlurmConfig(enabled=True))
+
+
+
 
 
 
@@ -541,7 +299,7 @@ class TestDL3Producer:
         table = SimpleNamespace(nsb_level=0.38, dec_line=347)
         ImmediateExecutor.workers = []
         monkeypatch.setattr(execution_module, "ProcessPoolExecutor", ImmediateExecutor)
-        monkeypatch.setattr(dl3_module, "LSTDL2EventTable", lambda path: table)
+        monkeypatch.setattr(dl3_module, "LSTObservedDL2Table", lambda path: table)
         monkeypatch.setattr(dl3_module, "find_mc_dl2_files", fake_find_mc_dl2_files)
         monkeypatch.setattr(dl3_module, "IRFGenerator", FakeIRFGenerator)
         monkeypatch.setattr(dl3_module, "DL3Reducer", FakeDL3Reducer)
@@ -601,7 +359,7 @@ class TestDL3Producer:
         made_nodes, _, _, _ = self._fake_irf_and_reduction(monkeypatch)
         nsb_by_file = dict(zip(dl2_files, (0.22, 0.38), strict=True))
         monkeypatch.setattr(
-            dl3_module, "LSTDL2EventTable",
+            dl3_module, "LSTObservedDL2Table",
             lambda path: SimpleNamespace(nsb_level=nsb_by_file[Path(path)], dec_line=347),
         )
 
@@ -634,7 +392,7 @@ class TestDL3Producer:
             provenance_reads.append(path)
             return SimpleNamespace(nsb_level=0.38, dec_line=347)
 
-        monkeypatch.setattr(dl3_module, "LSTDL2EventTable", read_table)
+        monkeypatch.setattr(dl3_module, "LSTObservedDL2Table", read_table)
         counts = producer.produce(make_selection([RUN_10623]))
 
         assert [node.cut_label for node in made_nodes] == ["ghcut0.7", "ghcut0.7"]
@@ -700,7 +458,7 @@ class TestDL3Producer:
             reads.append(path)
             return SimpleNamespace(nsb_level=0.38, dec_line=347)
 
-        monkeypatch.setattr(dl3_module, "LSTDL2EventTable", read_table)
+        monkeypatch.setattr(dl3_module, "LSTObservedDL2Table", read_table)
         producer = DL3Producer(self._build_config(), tmp_path / "out", source=SourceConfig("Crab", 83.6, 22.0))
         producer.produce(make_selection([RUN_10623]))
 

@@ -8,7 +8,7 @@ from lstchain.io.io import dl2_params_lstcam_key
 from lstchain.io.provenance import read_dl2_provenance
 
 
-class LSTDL2TableBase:
+class LSTDL2Table:
     """File access and provenance information of one DL2 table file."""
 
     def __init__(self, file_name: str | PathLike[str]):
@@ -19,7 +19,7 @@ class LSTDL2TableBase:
         self.analyze_provenance()
 
     @cached_property
-    def dl2_params(self) -> pd.DataFrame:
+    def events(self) -> pd.DataFrame:
         return self.read_dl2_events(self.file_name)
 
     @staticmethod
@@ -34,10 +34,6 @@ class LSTDL2TableBase:
         if "gammaness" in events.columns and "gh_score" not in events.columns:
             events["gh_score"] = events["gammaness"]
         return events
-
-    @property
-    def data(self):
-        return self.dl2_params
 
     def analyze_provenance(self):
         config = self.dl2_provenance.get("input", [])

@@ -14,7 +14,7 @@ from lst_tools.irf import IRFConfig, IRFNode
 )
 def test_irf_set_dir_includes_irf_type_and_cut_label(tmp_path, monkeypatch, point_like, irf_type):
     monkeypatch.setattr(
-        "lst_tools.dl3.reduction.LSTDL2EventTable",
+        "lst_tools.dl3.reduction.LSTObservedDL2Table",
         lambda path: SimpleNamespace(nsb_level=0.81, dec_line=2276),
     )
     irf_config = IRFConfig(EventFilter.from_cuts(80, 1.0, gh_cut=0.7), point_like=point_like)
@@ -29,7 +29,7 @@ def test_irf_set_dir_is_the_directory_the_generator_writes(tmp_path, monkeypatch
     # The reduction and the generation must agree on the layout without
     # restating it: the reducer's lookup is the node's own directory.
     monkeypatch.setattr(
-        "lst_tools.dl3.reduction.LSTDL2EventTable",
+        "lst_tools.dl3.reduction.LSTObservedDL2Table",
         lambda path: SimpleNamespace(nsb_level=0.38, dec_line=-2276),
     )
     irf_config = IRFConfig(EventFilter.from_cuts(80, 1.0, gh_efficiency=0.7), point_like=True)

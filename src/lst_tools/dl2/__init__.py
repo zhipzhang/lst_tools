@@ -1,3 +1,16 @@
-from .dl2mctable import LSTDL2MCTable as LSTDL2MCTable
-from .dl2table import LSTDL2EventTable as LSTDL2EventTable
-from .dl2table_base import LSTDL2TableBase as LSTDL2TableBase
+from .base import LSTDL2Table
+from .observed import LSTObservedDL2Table
+from .simulated import LSTSimulatedDL2Table
+
+LSTDL2TableBase = LSTDL2Table
+LSTDL2EventTable = LSTObservedDL2Table
+LSTDL2MCTable = LSTSimulatedDL2Table
+
+__all__ = [
+    "LSTDL2EventTable",
+    "LSTDL2MCTable",
+    "LSTDL2Table",
+    "LSTDL2TableBase",
+    "LSTObservedDL2Table",
+    "LSTSimulatedDL2Table",
+]

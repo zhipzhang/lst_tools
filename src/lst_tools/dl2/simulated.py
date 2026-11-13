@@ -8,10 +8,10 @@ from numpy.typing import NDArray
 from pyirf.simulations import SimulatedEventsInfo
 from pyirf.spectral import CRAB_MAGIC_JHEAP2015, PowerLaw, calculate_event_weights
 
-from .dl2table_base import LSTDL2TableBase
+from .base import LSTDL2Table
 
 
-class LSTDL2MCTable(LSTDL2TableBase):
+class LSTSimulatedDL2Table(LSTDL2Table):
     """DL2 MC events loaded from one lstchain MC file."""
 
     def __init__(self, file_name: str | PathLike[str]):
@@ -22,7 +22,7 @@ class LSTDL2MCTable(LSTDL2TableBase):
         if viewcone_max - viewcone_min < 0.1 * u.deg:
             viewcone_min = 0 * u.deg
             viewcone_max = 0 * u.deg
-        self.sim_info = SimulatedEventsInfo(
+        self.simulation_info = SimulatedEventsInfo(
             n_showers=simu_config.n_showers * simu_config.shower_reuse,
             energy_min=simu_config.energy_range_min,
             energy_max=simu_config.energy_range_max,
@@ -32,9 +32,11 @@ class LSTDL2MCTable(LSTDL2TableBase):
             viewcone_max=viewcone_max,
         )
 
-    def calculate_weights_for_event(self, t_eff: u.Quantity, spectrum=CRAB_MAGIC_JHEAP2015) -> NDArray[np.float64]:
-        simulated_spectrum = PowerLaw.from_simulation(self.sim_info, t_eff)
-        mc_energy = self.dl2_params["mc_energy"].to_numpy() * u.TeV
+    def calculate_weights_for_event(
+        self, effective_time: u.Quantity, spectrum=CRAB_MAGIC_JHEAP2015
+    ) -> NDArray[np.float64]:
+        simulated_spectrum = PowerLaw.from_simulation(self.simulation_info, effective_time)
+        mc_energy = self.events["mc_energy"].to_numpy() * u.TeV
         weights = calculate_event_weights(mc_energy, target_spectrum=spectrum, simulated_spectrum=simulated_spectrum)
         return weights
 

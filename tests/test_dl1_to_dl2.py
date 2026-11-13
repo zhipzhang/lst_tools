@@ -5,11 +5,6 @@ import pytest
 from lst_tools.scripts import dl1_to_dl2
 
 
-# TEST: Add direct tests for lst_tools.dl2.reconstruction. The canonical reconstruction layer
-# currently has no focused tests for model grouping, validation-before-execution, empty
-# input, output naming, or the DL1ToDL2Tool/run_tool boundary.
-# TEST: Keep one CLI wiring test, but move NSB-grouping coverage to the canonical function.
-# CLI tests should mock reconstruct_dl1_to_dl2 rather than its internal dl1_to_dl2_batch.
 class TestBuildParser:
     def test_required_arguments(self):
         parser = dl1_to_dl2.build_parser()
@@ -76,78 +71,38 @@ class TestMain:
                 ]
             )
 
-    def test_successful_execution_calls_batch(self, tmp_path, monkeypatch, capsys):
-        model_dir = tmp_path / "models"
-        model_dir.mkdir()
+    def test_passes_arguments_to_reconstruction_and_reports_actual_outputs(self, tmp_path, monkeypatch, capsys):
         dl1_file = tmp_path / "dl1_0001.h5"
-        dl1_file.touch()
-        out_dir = tmp_path / "out_dl2"
-
+        output_directory = tmp_path / "out_dl2"
+        model_directory = tmp_path / "models"
         captured = {}
 
-        def fake_batch(files, out_root, model_directory, overwrite=False):
+        def fake_reconstruct(files, output_directory, model_directory_template, overwrite=False):
             captured["files"] = list(files)
-            captured["out_root"] = out_root
-            captured["model_directory"] = model_directory
+            captured["output_directory"] = output_directory
+            captured["model_directory_template"] = model_directory_template
             captured["overwrite"] = overwrite
+            return [Path(output_directory) / "dl2_0001.h5"]
 
-        monkeypatch.setattr("lst_tools.dl2.reconstruction.dl1_to_dl2_batch", fake_batch)
+        monkeypatch.setattr(dl1_to_dl2, "reconstruct_dl1_to_dl2", fake_reconstruct)
 
         dl1_to_dl2.main(
             [
                 "-i",
                 str(dl1_file),
                 "-o",
-                str(out_dir),
+                str(output_directory),
                 "-m",
-                str(model_dir),
+                str(model_directory),
                 "--overwrite",
             ]
         )
 
-        assert captured["files"] == [dl1_file]
-        assert captured["out_root"] == out_dir
-        assert captured["model_directory"] == model_dir
-        assert captured["overwrite"] is True
-        assert out_dir.is_dir()
-
+        assert captured == {
+            "files": [dl1_file],
+            "output_directory": output_directory,
+            "model_directory_template": model_directory,
+            "overwrite": True,
+        }
         stdout = capsys.readouterr().out
-        assert "Reconstructed 1 DL1 file(s)" in stdout
-
-    # TEST: This duplicates producer NSB coverage. Keep detailed grouping assertions at the
-    # canonical reconstruction layer; here only verify that CLI arguments reach that layer.
-    def test_nsb_template_groups_runs_by_resolved_model(self, tmp_path, monkeypatch):
-        dl1_files = [tmp_path / f"dl1_000{run}.h5" for run in (1, 2, 3)]
-        for dl1_file in dl1_files:
-            dl1_file.touch()
-        model_template = tmp_path / "models" / "nsb_$NSB_LEVEL"
-        model_directories = [tmp_path / "models" / "nsb_0.22", tmp_path / "models" / "nsb_0.38"]
-        for model_directory in model_directories:
-            model_directory.mkdir(parents=True)
-        nsb_by_file = dict(zip(dl1_files, (0.22, 0.38, 0.22), strict=True))
-        calls = []
-
-        def fake_batch(files, out_root, model_directory, overwrite=False):
-            calls.append((list(files), Path(out_root), Path(model_directory), overwrite))
-
-        monkeypatch.setattr("lst_tools.dl2.reconstruction.dl1_to_dl2_batch", fake_batch)
-        monkeypatch.setattr(
-            "lst_tools.dl2.reconstruction.resolve_dl1_nsb_level",
-            lambda path: nsb_by_file[Path(path)],
-        )
-
-        dl1_to_dl2.main(
-            [
-                "--input",
-                *(str(file) for file in dl1_files),
-                "--output-dir",
-                str(tmp_path / "out"),
-                "--model-dir",
-                str(model_template),
-            ]
-        )
-
-        assert calls == [
-            ([dl1_files[0], dl1_files[2]], tmp_path / "out", model_directories[0], False),
-            ([dl1_files[1]], tmp_path / "out", model_directories[1], False),
-        ]
+        assert "1 of 1 input file(s) have DL2 outputs" in stdout

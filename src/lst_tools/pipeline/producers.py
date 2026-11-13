@@ -11,15 +11,14 @@ recipe.
 """
 
 import os
-import shlex
 import warnings
 from abc import ABC
 from collections import Counter
 from collections.abc import Sequence
 from pathlib import Path
-from typing import Any, ClassVar, Literal
+from typing import ClassVar, Literal
 
-from lst_tools.dl2.reconstruction import reconstruct_dl1_to_dl2
+from lst_tools.dl2.reconstruction import dl2_output_path, reconstruct_dl1_to_dl2
 from lst_tools.finder import (
     DL1LevelSearchResult,
     DL2LevelSearchResult,
@@ -30,7 +29,8 @@ from lst_tools.finder import (
 )
 
 from .configs import DL1ProducerConfig, DL2ProducerConfig, DL3ProducerConfig, SourceConfig
-from .dl2_inputs import dl2_output_path, find_pending_dl1_files
+from .dl2_inputs import find_pending_dl1_files
+from .dl2_slurm import DL2SlurmSubmitter
 from .dl3 import DL2Observation, DL3Build, DL3Reduction
 from .dl3_execution import submit_dl3_build
 from .selection import RunSelection
@@ -165,69 +165,39 @@ class DL2Producer(DLProducer):
     def link(self, selection: RunSelection) -> Counter:
         return self._link_selection(selection)
 
-    # REFACTOR: Separate worker-command construction from simple_slurm side effects so the
-    # exact local/SLURM plan can be tested without patching a third-party job object.
     def slurm_build(self, selection: RunSelection, slurm_config: SlurmConfig) -> Counter:
-        """Submit DL2 batch reconstruction jobs to SLURM via simple_slurm."""
-        from simple_slurm import Slurm
-
+        """Submit reconstruction jobs for the selected pending DL1 files."""
         build_options = self.config.build
         if build_options is None or build_options.rf_directory is None:  # pragma: no cover - guarded by config parsing
             raise ValueError("dl2: building requires [dl2.build] with rf_directory")
         rf_template = build_options.rf_directory
         overwrite = build_options.overwrite
 
+        pending, existing_count = find_pending_dl1_files(
+            selection,
+            self.dl1_directory,
+            self.output_dir,
+            overwrite=overwrite,
+        )
         counts: Counter = Counter()
-        if not self.dl1_directory.is_dir():
-            warnings.warn(f"dl2: no DL1 directory at {self.dl1_directory}; skipping", stacklevel=2)
+        if existing_count:
+            counts["dl2:existing"] = existing_count
+        if not pending:
             return counts
 
-        log_dir = self.output_root / slurm_config.log_directory
-        log_dir.mkdir(parents=True, exist_ok=True)
-
-        slurm_kwargs: dict[str, Any] = {
-            "partition": slurm_config.partition,
-            "cpus_per_task": slurm_config.dl2.cpus_per_task,
-            "mem": slurm_config.dl2.mem,
-            "time": slurm_config.dl2.time,
-            "output": str(log_dir / "%x_%j.out"),
-            "error": str(log_dir / "%x_%j.err"),
-        }
-        if slurm_config.account is not None:
-            slurm_kwargs["account"] = slurm_config.account
-        slurm_kwargs.update(slurm_config.extra_args)
-        slurm_kwargs.update(slurm_config.dl2.extra_args)
-
-        runs_per_job = slurm_config.dl2.runs_per_job
-        dl1_files = sorted(self.dl1_directory.glob("dl1_*.h5"))
-        pending = [
-            dl1_file
-            for dl1_file in dl1_files
-            if overwrite or not (self.output_dir / dl1_file.name.replace("dl1", "dl2", 1)).exists()
-        ]
-        counts["dl2:existing"] += len(dl1_files) - len(pending)
-
-        for batch_idx, i in enumerate(range(0, len(pending), runs_per_job), start=1):
-            chunk = pending[i : i + runs_per_job]
-            slurm = Slurm(**{**slurm_kwargs, "job_name": f"lst_dl2_{batch_idx}"})
-            slurm.set_shell("/bin/bash")
-            if slurm_config.env_setup:
-                slurm.add_cmd(slurm_config.env_setup)
-
-            files_arg = " ".join(shlex.quote(str(file)) for file in chunk)
-            cmd = (
-                f"{self.worker_command} --input {files_arg} "
-                f"--output-dir {shlex.quote(str(self.output_dir))} "
-                f"--model-dir {shlex.quote(rf_template)}"
-            )
-            if overwrite:
-                cmd += " --overwrite"
-            slurm.add_cmd(cmd)
-
-            slurm.sbatch()
-            counts["dl2:slurm_jobs"] += 1
-            counts["dl2:slurm_runs"] += len(chunk)
-
+        submitter = DL2SlurmSubmitter(
+            output_root=self.output_root,
+            output_directory=self.output_dir,
+            config=slurm_config,
+            worker_command=self.worker_command,
+        )
+        job_ids = submitter.submit(
+            pending,
+            model_directory_template=rf_template,
+            overwrite=overwrite,
+        )
+        counts["dl2:slurm_jobs"] = len(job_ids)
+        counts["dl2:slurm_runs"] = len(pending)
         return counts
 
     def build(self, selection: RunSelection) -> Counter:
@@ -261,9 +231,10 @@ class DL2Producer(DLProducer):
         if not pending:
             return counts
 
-        reconstruct_dl1_to_dl2(pending, self.output_dir, rf_template, overwrite=overwrite)
+        output_paths = reconstruct_dl1_to_dl2(pending, self.output_dir, rf_template, overwrite=overwrite)
+        available_outputs = set(output_paths)
         for dl1_file in pending:
-            if dl2_output_path(dl1_file, self.output_dir).exists():
+            if dl2_output_path(dl1_file, self.output_dir) in available_outputs:
                 counts["dl2:built"] += 1
             else:
                 warnings.warn(f"DL1ToDL2Tool did not create the DL2 file for {dl1_file}", stacklevel=2)
