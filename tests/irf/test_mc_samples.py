@@ -2,7 +2,7 @@ from pathlib import Path
 
 import pytest
 
-from lst_tools.finder import MCDL2Attribute
+from lst_tools.finder import MCDL2Metadata
 from lst_tools.irf import GammaMCSample, irf_file_path, irf_grid_path, select_gamma_mc_samples
 
 
@@ -30,9 +30,7 @@ def test_irf_file_path_combines_sample_pointing_with_configuration():
 
     path = irf_file_path(sample, irf_type="full-enclosure", cut_label="gheff0.7")
 
-    assert path == Path(
-        "dec_2276/nsb_0.81/full-enclosure/gheff0.7/theta_52.374_az_133.619.irf.fits.gz"
-    )
+    assert path == Path("dec_2276/nsb_0.81/full-enclosure/gheff0.7/theta_52.374_az_133.619.irf.fits.gz")
 
 
 def test_irf_file_path_separates_configurations_for_the_same_sample():
@@ -61,10 +59,10 @@ def test_irf_grid_path_is_the_directory_above_the_pointing_files():
 
 
 def test_select_gamma_mc_samples_filters_and_deduplicates_by_tuning_and_irf_type():
-    diffuse = MCDL2Attribute(Path("/mc/diffuse.h5"), "GammaDiffuse", 20, 180, 0.38, 347)
-    point = MCDL2Attribute(Path("/mc/gamma.h5"), "Gamma", 20, 180, 0.38, 347)
-    other_dec = MCDL2Attribute(Path("/mc/other_dec.h5"), "GammaDiffuse", 20, 180, 0.38, 999)
-    other_nsb = MCDL2Attribute(Path("/mc/other_nsb.h5"), "GammaDiffuse", 20, 180, 0.81, 347)
+    diffuse = MCDL2Metadata(Path("/mc/diffuse.h5"), "GammaDiffuse", 20, 180, 0.38, 347)
+    point = MCDL2Metadata(Path("/mc/gamma.h5"), "Gamma", 20, 180, 0.38, 347)
+    other_dec = MCDL2Metadata(Path("/mc/other_dec.h5"), "GammaDiffuse", 20, 180, 0.38, 999)
+    other_nsb = MCDL2Metadata(Path("/mc/other_nsb.h5"), "GammaDiffuse", 20, 180, 0.81, 347)
     attributes = [diffuse, diffuse, point, other_dec, other_nsb]
 
     full_samples = select_gamma_mc_samples(
@@ -80,9 +78,5 @@ def test_select_gamma_mc_samples_filters_and_deduplicates_by_tuning_and_irf_type
         irf_type="point",
     )
 
-    assert full_samples == (
-        GammaMCSample(Path("/mc/diffuse.h5"), "diffuse", 0.38, 347, 20, 180),
-    )
-    assert point_samples == (
-        GammaMCSample(Path("/mc/gamma.h5"), "point-source", 0.38, 347, 20, 180),
-    )
+    assert full_samples == (GammaMCSample(Path("/mc/diffuse.h5"), "diffuse", 0.38, 347, 20, 180),)
+    assert point_samples == (GammaMCSample(Path("/mc/gamma.h5"), "point-source", 0.38, 347, 20, 180),)

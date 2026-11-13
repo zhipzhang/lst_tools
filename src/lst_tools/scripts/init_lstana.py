@@ -27,7 +27,7 @@ else:  # pragma: no cover - Python 3.10 compatibility
 
 from lst_tools.catalog import select_runs_away_from_sources
 from lst_tools.datacheck import DataCheckTables, RunQualityFilter
-from lst_tools.finder import filter_date
+from lst_tools.datacheck.utils import filter_paths_by_date
 from lst_tools.helper import glob_files
 from lst_tools.pipeline import (
     DL1Producer,
@@ -64,7 +64,7 @@ def load_datacheck_tables(raw_config: dict) -> DataCheckTables:
     """
     files = glob_files(DATACHECK_DIR, DATACHECK_PATTERN)
     cuts = raw_config.get("data_filter", {}).get("cuts", {})
-    files = filter_date(files, int(cuts.get("first_date", 0)), int(cuts.get("last_date", 20999999)))
+    files = filter_paths_by_date(files, int(cuts.get("first_date", 0)), int(cuts.get("last_date", 20999999)))
     if not files:
         raise FileNotFoundError(f"No datacheck files found under {DATACHECK_DIR} within the configured date range")
     return DataCheckTables.from_files(files)

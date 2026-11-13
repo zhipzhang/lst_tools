@@ -166,17 +166,17 @@ def plot_histogram(
 
 def find_lst_data_path(date: int, run_number: int, level="dl1"):
     """
-    Deprecated: use ``lst_tools.finder.find_la_palma_files`` instead.
+    Deprecated: use ``lst_tools.finder.find_la_palma_run`` instead.
 
     Kept for backward compatibility: returns a single path for DL1/DL2
     (``None`` if not found) and a list of paths for DL3.
     """
     import warnings
 
-    from .finder.search import LA_PALMA_DATA_PATHS, _glob_run_files
+    from .finder.observed import LA_PALMA_DATA_PATHS, _glob_run_files
 
     warnings.warn(
-        "find_lst_data_path is deprecated, use lst_tools.finder.find_la_palma_files instead",
+        "find_lst_data_path is deprecated, use lst_tools.finder.find_la_palma_run instead",
         DeprecationWarning,
         stacklevel=2,
     )
@@ -216,7 +216,7 @@ def find_lst_subrun_files(date: int, run_number: int, level="dl1") -> list[str]:
     """
     import warnings
 
-    from .finder.search import LA_PALMA_DATA_PATHS
+    from .finder.observed import LA_PALMA_DATA_PATHS
 
     level = level.upper()
     if level not in ["DL1", "DL2"]:

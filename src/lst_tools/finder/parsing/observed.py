@@ -4,29 +4,9 @@ import re
 from pathlib import Path
 from typing import Literal
 
-from ..metadata import (
-    DL1Attributes,
-    DL2Attributes,
-    DL3Attributes,
-    NSBLevel,
-)
+from lst_tools.nsb import NSBLevel
 
-
-def filter_date(files: list[str], start_date: int, end_date: int) -> list[str]:
-    """
-    date is like 20260101
-    files is like  DL1_datacheck_20220426.h5
-
-    Only files whose date is within [start_date, end_date] (inclusive) are
-    returned; files without a date are dropped.
-    """
-    date_pattern = re.compile(r"(\d{8})")
-    filtered = []
-    for path in files:
-        match = date_pattern.search(Path(path).name)
-        if match is not None and start_date <= int(match.group(1)) <= end_date:
-            filtered.append(path)
-    return filtered
+from ..models import DL1Metadata, DL2Metadata, DL3Metadata
 
 
 def parse_run_id(path: str) -> int:
@@ -91,23 +71,23 @@ def parse_mc_data_type(path: str) -> Literal["ring-wobble", "diffuse"]:
     raise ValueError(f"Could not parse mc data type from: {path!r}")
 
 
-def parse_dl1_path(path: str) -> DL1Attributes:
+def parse_dl1_path(path: str) -> DL1Metadata:
     run_number = parse_run_id(path)
     tailcuts_level = parse_tailcuts_level(path)
     lstchain_version = parse_lstchain_version(path)
-    return DL1Attributes(Path(path), run_number, tailcuts_level, lstchain_version, None)
+    return DL1Metadata(Path(path), run_number, tailcuts_level, lstchain_version, None)
 
 
-def parse_dl2_path(path: str) -> DL2Attributes:
+def parse_dl2_path(path: str) -> DL2Metadata:
     run_number = parse_run_id(path)
     tailcuts_level = parse_tailcuts_level(path)
     lstchain_version = parse_lstchain_version(path)
     nsb_level = parse_nsb_level_from_path(path)
-    return DL2Attributes(Path(path), run_number, tailcuts_level, lstchain_version, nsb_level)
+    return DL2Metadata(Path(path), run_number, tailcuts_level, lstchain_version, nsb_level)
 
 
-def parse_dl3_path(path: str) -> DL3Attributes:
-    return DL3Attributes(
+def parse_dl3_path(path: str) -> DL3Metadata:
+    return DL3Metadata(
         path=Path(path),
         run_number=parse_run_id(path),
         tailcuts_level=parse_tailcuts_level(path),

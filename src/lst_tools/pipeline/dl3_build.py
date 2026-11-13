@@ -8,7 +8,7 @@ from pathlib import Path
 
 from lst_tools.dl2 import LSTObservedDL2Table
 from lst_tools.dl3 import DL3Reducer
-from lst_tools.finder import MC_DL2_PATH, MCDL2Attribute, find_mc_dl2_files
+from lst_tools.finder import MC_DL2_PATH, MCDL2Metadata, find_mc_dl2_files
 from lst_tools.irf import GammaMCSample, IRFConfig, IRFGenerator, select_gamma_mc_samples
 
 from .configs import NSB_LEVEL_VARIABLE
@@ -67,8 +67,7 @@ class DL3Build:
 
     def _reduce_batches(self, workers: int, runs_per_worker: int) -> Counter:
         batches = [
-            self.dl2_files[start : start + runs_per_worker]
-            for start in range(0, len(self.dl2_files), runs_per_worker)
+            self.dl2_files[start : start + runs_per_worker] for start in range(0, len(self.dl2_files), runs_per_worker)
         ]
         counts: Counter = Counter()
         with ProcessPoolExecutor(max_workers=min(workers, len(batches))) as pool:
@@ -79,7 +78,7 @@ class DL3Build:
 
     def _find_sample_groups(self) -> list[tuple[GammaMCSample, ...]]:
         mc_tunings = self._resolve_dl2_mc_tunings()
-        campaigns: dict[Path, list[MCDL2Attribute]] = {}
+        campaigns: dict[Path, list[MCDL2Metadata]] = {}
         irf_config = self.reducer.irf_config
         irf_type = irf_config.irf_type
         finder_mc_type = "Gamma" if irf_config.point_like else "GammaDiffuse"
@@ -96,8 +95,7 @@ class DL3Build:
             )
             if not samples:
                 raise FileNotFoundError(
-                    f"No {finder_mc_type} MC samples for NSB {nsb_level:g}, "
-                    f"declination line {dec_line} in {campaign}"
+                    f"No {finder_mc_type} MC samples for NSB {nsb_level:g}, declination line {dec_line} in {campaign}"
                 )
             sample_groups.append(samples)
         return sample_groups

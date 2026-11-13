@@ -5,7 +5,7 @@ import pandas as pd
 import pytest
 
 import lst_tools.pipeline.producers as producers_module
-from lst_tools.finder import DLAttributes
+from lst_tools.finder import ObservedDataMetadata
 from lst_tools.pipeline import (
     DL2BuildOptions,
     DL2LinkOptions,
@@ -20,8 +20,8 @@ def make_selection(rows) -> RunSelection:
     return RunSelection(selected=pd.DataFrame(rows))
 
 
-def make_dl_attrs(path: str, run_number: int = 10623) -> DLAttributes:
-    return DLAttributes(
+def make_dl_attrs(path: str, run_number: int = 10623) -> ObservedDataMetadata:
+    return ObservedDataMetadata(
         path=Path(path),
         run_number=run_number,
         tailcuts_level=(10, 5),
@@ -34,7 +34,7 @@ def patch_finder(monkeypatch, results_by_key: dict):
     def fake_find(date, run_number, level):
         return results_by_key[(date, run_number, level)]
 
-    monkeypatch.setattr(producers_module, "find_la_palma_files", fake_find)
+    monkeypatch.setattr(producers_module, "find_la_palma_run", fake_find)
 
 
 RUN_10623 = {"runnumber": 10623, "date": 20220426}
@@ -45,7 +45,7 @@ class TestDL2Producer:
         source = tmp_path / "server" / "dl2_LST-1.Run10623.h5"
         source.parent.mkdir(parents=True, exist_ok=True)
         source.touch()
-        patch_finder(monkeypatch, {(20220426, 10623, "dl2"): SimpleNamespace(newest_attributes=make_dl_attrs(source))})
+        patch_finder(monkeypatch, {(20220426, 10623, "dl2"): SimpleNamespace(newest_metadata=make_dl_attrs(source))})
         producer = DL2Producer(DL2ProducerConfig(enabled=True, source="link"), tmp_path / "out")
 
         counts = producer.produce(make_selection([RUN_10623]))

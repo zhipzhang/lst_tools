@@ -1,5 +1,19 @@
+import re
+from pathlib import Path
+
 import numpy as np
 import pandas as pd
+
+
+def filter_paths_by_date(files: list[str], start_date: int, end_date: int) -> list[str]:
+    """Return paths whose filenames contain a date within the inclusive range."""
+    date_pattern = re.compile(r"(\d{8})")
+    filtered = []
+    for path in files:
+        match = date_pattern.search(Path(path).name)
+        if match is not None and start_date <= int(match.group(1)) <= end_date:
+            filtered.append(path)
+    return filtered
 
 
 def mean_fit_p_value_to_sigma(mean_p_value: pd.Series, n_subruns: pd.Series) -> pd.Series:

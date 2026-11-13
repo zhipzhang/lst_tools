@@ -8,7 +8,7 @@ import pytest
 
 import lst_tools.pipeline.dl3_build as dl3_module
 import lst_tools.pipeline.producers as producers_module
-from lst_tools.finder import MC_DL2_PATH, DL3Attributes, MCDL2Attribute
+from lst_tools.finder import MC_DL2_PATH, DL3Metadata, MCDL2Metadata
 from lst_tools.irf import IRFConfig
 from lst_tools.pipeline import (
     DL3BuildOptions,
@@ -51,8 +51,8 @@ def make_dl3_attrs(
     gh_eff: float = 0.7,
     theta_containment: float = 0.7,
     lstchain_version: str = "0.11",
-) -> DL3Attributes:
-    return DL3Attributes(
+) -> DL3Metadata:
+    return DL3Metadata(
         path=Path(path),
         run_number=14083,
         tailcuts_level=(10, 5),
@@ -69,7 +69,7 @@ def patch_finder(monkeypatch, results_by_key: dict):
     def fake_find(date, run_number, level):
         return results_by_key[(date, run_number, level)]
 
-    monkeypatch.setattr(producers_module, "find_la_palma_files", fake_find)
+    monkeypatch.setattr(producers_module, "find_la_palma_run", fake_find)
 
 
 RUN_10623 = {"runnumber": 10623, "date": 20220426}
@@ -83,7 +83,7 @@ DL3_OLD_VERSION = "/fefs/onsite/data/lst-pipe/LSTN-01/DL3/20230821/v0.10/tailcut
 
 
 def make_dl3_result(newest, all_files):
-    return SimpleNamespace(newest_attributes=newest, dl3_files=all_files)
+    return SimpleNamespace(newest_metadata=newest, dl3_files=all_files)
 
 
 class TestDL3Producer:
@@ -141,9 +141,9 @@ class TestDL3Producer:
 
     def _fake_irf_and_reduction(self, monkeypatch):
         attributes = [
-            MCDL2Attribute(Path("/mc/diffuse.h5"), "GammaDiffuse", 20, 180, 0.38, 347),
-            MCDL2Attribute(Path("/mc/gamma.h5"), "Gamma", 20, 180, 0.38, 347),
-            MCDL2Attribute(Path("/mc/other_dec.h5"), "GammaDiffuse", 20, 180, 0.38, 999),
+            MCDL2Metadata(Path("/mc/diffuse.h5"), "GammaDiffuse", 20, 180, 0.38, 347),
+            MCDL2Metadata(Path("/mc/gamma.h5"), "Gamma", 20, 180, 0.38, 347),
+            MCDL2Metadata(Path("/mc/other_dec.h5"), "GammaDiffuse", 20, 180, 0.38, 999),
         ]
         made_samples = []
         reductions = []
@@ -239,13 +239,14 @@ class TestDL3Producer:
         made_samples, _, _, _ = self._fake_irf_and_reduction(monkeypatch)
         nsb_by_file = dict(zip(dl2_files, (0.22, 0.38), strict=True))
         monkeypatch.setattr(
-            dl3_module, "LSTObservedDL2Table",
+            dl3_module,
+            "LSTObservedDL2Table",
             lambda path: SimpleNamespace(nsb_level=nsb_by_file[Path(path)], dec_line=347),
         )
 
         def find_mc(directory):
             nsb = float(str(directory).rsplit("_", 1)[1])
-            return [MCDL2Attribute(Path("/mc/diffuse.h5"), "GammaDiffuse", 20, 180, nsb, 347)]
+            return [MCDL2Metadata(Path("/mc/diffuse.h5"), "GammaDiffuse", 20, 180, nsb, 347)]
 
         monkeypatch.setattr(dl3_module, "find_mc_dl2_files", find_mc)
         producer = DL3Producer(self._build_config(), tmp_path / "out", source=SourceConfig("Crab", 83.6, 22.0))
@@ -270,9 +271,7 @@ class TestDL3Producer:
 
         assert [sample.path for sample in made_samples] == [Path("/mc/diffuse.h5")] * 2
         assert generator_bases == [tmp_path / "out" / "irfs" / name for name in ("standard", "quality_tight")]
-        assert reductions == [
-            (dl2_files, tmp_path / "out" / "dl3" / name) for name in ("standard", "quality_tight")
-        ]
+        assert reductions == [(dl2_files, tmp_path / "out" / "dl3" / name) for name in ("standard", "quality_tight")]
         assert counts["dl3:irf_files"] == 2
         assert counts["dl3:reduced"] == 2
         assert ImmediateExecutor.workers == [1, 1, 1, 1]
@@ -281,7 +280,8 @@ class TestDL3Producer:
         self._make_dl2_tree(tmp_path, 10623)
         _, reductions, generator_bases, campaigns = self._fake_irf_and_reduction(monkeypatch)
         config = self._build_config(
-            irf_directory=tmp_path / "my_irfs", output_directory=tmp_path / "my_dl3",
+            irf_directory=tmp_path / "my_irfs",
+            output_directory=tmp_path / "my_dl3",
             mc_dl2_directory=str(tmp_path / "mc_$NSB_LEVEL"),
         )
         producer = DL3Producer(config, tmp_path / "out", source=SourceConfig("Crab", 83.6, 22.0))
@@ -306,7 +306,9 @@ class TestDL3Producer:
 
             monkeypatch.setattr(simple_slurm.Slurm, "sbatch", lambda slurm_job: 12345)
         producer = DL3Producer(
-            self._build_config(), tmp_path / "out", source=SourceConfig("Crab", 83.6, 22.0),
+            self._build_config(),
+            tmp_path / "out",
+            source=SourceConfig("Crab", 83.6, 22.0),
             slurm_config=SlurmConfig(enabled=slurm),
         )
         with pytest.warns(UserWarning, match="missing DL2: 10624"):
@@ -323,7 +325,9 @@ class TestDL3Producer:
     def test_missing_dl2_directory_warns_and_does_no_work(self, tmp_path, monkeypatch, slurm):
         made_samples, reductions, _, campaigns = self._fake_irf_and_reduction(monkeypatch)
         producer = DL3Producer(
-            self._build_config(), tmp_path / "out", source=SourceConfig("Crab", 83.6, 22.0),
+            self._build_config(),
+            tmp_path / "out",
+            source=SourceConfig("Crab", 83.6, 22.0),
             slurm_config=SlurmConfig(enabled=slurm),
         )
         with pytest.warns(UserWarning, match="no DL2 directory") as warnings:
@@ -370,7 +374,9 @@ class TestDL3Producer:
         selection = make_selection([RUN_10623])
         selection.selected = selection.selected.iloc[:0]
         producer = DL3Producer(
-            self._build_config(), tmp_path / "out", source=SourceConfig("Crab", 83.6, 22.0),
+            self._build_config(),
+            tmp_path / "out",
+            source=SourceConfig("Crab", 83.6, 22.0),
             slurm_config=SlurmConfig(enabled=slurm),
         )
         assert producer.produce(selection) == {}

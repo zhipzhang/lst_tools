@@ -4,7 +4,7 @@ import re
 from pathlib import Path
 from typing import Literal
 
-from ..metadata import MCDL2Attribute
+from ..models import MCDL2Metadata
 
 _NSB_PATTERN = re.compile(r"(?:^|_)nsb_(?P<nsb>\d+(?:\.\d+)?)$")
 _DEC_PATTERN = re.compile(r"dec_(?:(?P<negative>min)_)?(?P<digits>\d+)$")
@@ -55,10 +55,10 @@ def parse_mc_pointing(path: str | Path) -> tuple[float, float]:
     return float(match.group("theta")), float(match.group("azimuth"))
 
 
-def parse_mc_dl2_path(path: str | Path) -> MCDL2Attribute:
+def parse_mc_dl2_path(path: str | Path) -> MCDL2Metadata:
     path = Path(path)
     theta, azimuth = parse_mc_pointing(path)
-    return MCDL2Attribute(
+    return MCDL2Metadata(
         path=path,
         mc_type=parse_mc_type(path),
         theta=theta,

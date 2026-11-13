@@ -20,12 +20,12 @@ from typing import ClassVar, Literal
 
 from lst_tools.dl2.reconstruction import dl2_output_path, reconstruct_dl1_to_dl2
 from lst_tools.finder import (
-    DL1LevelSearchResult,
-    DL2LevelSearchResult,
-    DL3Attributes,
-    DL3LevelSearchResult,
-    DLAttributes,
-    find_la_palma_files,
+    DL1SearchResult,
+    DL2SearchResult,
+    DL3Metadata,
+    DL3SearchResult,
+    ObservedDataMetadata,
+    find_la_palma_run,
 )
 
 from .configs import DL1ProducerConfig, DL2ProducerConfig, DL3BuildOptions, DL3ProducerConfig, SourceConfig
@@ -39,9 +39,9 @@ from .slurm_config import SlurmConfig
 
 Level = Literal["dl1", "dl2", "dl3"]
 
-# Each subclass returns a different shape from ``newest_attributes``, so the
+# Each subclass returns a different shape from ``newest_metadata``, so the
 # hooks take the union; the DL3 override validates the shape it receives.
-AnySearchResult = DL1LevelSearchResult | DL2LevelSearchResult | DL3LevelSearchResult
+AnySearchResult = DL1SearchResult | DL2SearchResult | DL3SearchResult
 
 
 def create_safe_link(source: Path, destination: Path) -> str:
@@ -117,24 +117,24 @@ class DLProducer(ABC):
         """Per run: search the server, select the variant(s), place, safe-link."""
         counts: Counter = Counter()
         for run in selection:
-            result = find_la_palma_files(run.date, run.run_number, self.level)
-            for attrs in self._select_variants(result):
-                destination = self.output_dir / self._link_relpath(attrs)
-                counts[f"{self.level}:{create_safe_link(attrs.path, destination)}"] += 1
+            result = find_la_palma_run(run.date, run.run_number, self.level)
+            for metadata in self._select_variants(result):
+                destination = self.output_dir / self._link_relpath(metadata)
+                counts[f"{self.level}:{create_safe_link(metadata.path, destination)}"] += 1
         return counts
 
-    def _select_variants(self, result: AnySearchResult) -> Sequence[DLAttributes]:
+    def _select_variants(self, result: AnySearchResult) -> Sequence[ObservedDataMetadata]:
         """DL1/DL2: at most the single newest file. DL3 overrides for variants."""
-        newest = result.newest_attributes
+        newest = result.newest_metadata
         if newest is None:
             return []
         if isinstance(newest, list):  # DL3 shape; DL3 producers override this hook
             return newest
         return [newest]
 
-    def _link_relpath(self, attrs: DLAttributes) -> Path:
+    def _link_relpath(self, metadata: ObservedDataMetadata) -> Path:
         """Place DL1/DL2 files directly below output_dir."""
-        return Path(attrs.path.name)
+        return Path(metadata.path.name)
 
 
 class DL1Producer(DLProducer):
@@ -264,21 +264,21 @@ class DL3Producer(DLProducer):
     def link(self, selection: RunSelection) -> Counter:
         return self._link_selection(selection)
 
-    def _select_variants(self, result: AnySearchResult) -> Sequence[DL3Attributes]:
+    def _select_variants(self, result: AnySearchResult) -> Sequence[DL3Metadata]:
         """All variants of the newest version, narrowed by the link options."""
-        variants = result.newest_attributes
+        variants = result.newest_metadata
         if not isinstance(variants, list):
             raise TypeError(f"DL3 linking expects a DL3 search result, got {type(result).__name__}")
         if self.config.link is not None and self.config.link.irf_type is not None:
             variants = [variant for variant in variants if variant.irf_type == self.config.link.irf_type]
         return variants
 
-    def _link_relpath(self, attrs: DLAttributes) -> Path:
+    def _link_relpath(self, metadata: ObservedDataMetadata) -> Path:
         """Mirror the server's variant tree below output_dir."""
-        if not isinstance(attrs, DL3Attributes):
-            raise TypeError(f"DL3 linking expects DL3 attributes, got {type(attrs).__name__}")
-        cut_label = f"gheff{attrs.gh_eff}_thetacont{attrs.theta_containment}"
-        return Path(attrs.irf_type) / attrs.mc_data_type / cut_label / attrs.path.name
+        if not isinstance(metadata, DL3Metadata):
+            raise TypeError(f"DL3 linking expects DL3 metadata, got {type(metadata).__name__}")
+        cut_label = f"gheff{metadata.gh_eff}_thetacont{metadata.theta_containment}"
+        return Path(metadata.irf_type) / metadata.mc_data_type / cut_label / metadata.path.name
 
     def build(self, selection: RunSelection) -> Counter:
         options, source = self._validate_build_config()

@@ -3,7 +3,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Literal, Self
 
-from lst_tools.finder import MCDL2Attribute
+from lst_tools.finder import MCDL2Metadata
 
 
 @dataclass(frozen=True)
@@ -18,14 +18,14 @@ class GammaMCSample:
     azimuth: float
 
     @classmethod
-    def from_attribute(cls, attribute: MCDL2Attribute) -> Self:
+    def from_metadata(cls, metadata: MCDL2Metadata) -> Self:
         return cls(
-            path=attribute.path,
-            mc_type="point-source" if attribute.mc_type == "Gamma" else "diffuse",
-            nsb_level=attribute.nsb,
-            dec_line=attribute.dec,
-            zenith=attribute.theta,
-            azimuth=attribute.azimuth,
+            path=metadata.path,
+            mc_type="point-source" if metadata.mc_type == "Gamma" else "diffuse",
+            nsb_level=metadata.nsb,
+            dec_line=metadata.dec,
+            zenith=metadata.theta,
+            azimuth=metadata.azimuth,
         )
 
     @property
@@ -38,7 +38,7 @@ class GammaMCSample:
 
 
 def select_gamma_mc_samples(
-    attributes: Iterable[MCDL2Attribute],
+    metadata_records: Iterable[MCDL2Metadata],
     *,
     nsb_level: float,
     dec_line: int,
@@ -47,8 +47,8 @@ def select_gamma_mc_samples(
     """Select unique gamma MC samples matching one NSB tuning, declination line, and IRF type."""
     finder_mc_type = "Gamma" if irf_type == "point" else "GammaDiffuse"
     samples = (
-        GammaMCSample.from_attribute(attribute)
-        for attribute in attributes
-        if attribute.nsb == nsb_level and attribute.dec == dec_line and attribute.mc_type == finder_mc_type
+        GammaMCSample.from_metadata(metadata)
+        for metadata in metadata_records
+        if metadata.nsb == nsb_level and metadata.dec == dec_line and metadata.mc_type == finder_mc_type
     )
     return tuple(dict.fromkeys(samples))

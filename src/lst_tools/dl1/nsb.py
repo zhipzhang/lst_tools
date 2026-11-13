@@ -4,7 +4,8 @@ from os import PathLike
 
 from lstchain.image.cleaning import find_tailcuts
 
-from lst_tools.finder import NSBLevel, find_closest_nsb_level, parse_dl1_path
+from lst_tools.finder import parse_dl1_path
+from lst_tools.nsb import NSBLevel, nsb_level_at_or_above
 
 
 def resolve_dl1_nsb_level(path: str | PathLike[str]) -> NSBLevel:
@@ -14,6 +15,6 @@ def resolve_dl1_nsb_level(path: str | PathLike[str]) -> NSBLevel:
     events to derive an NSB tuning level, so it is considerably more expensive
     than path parsing.
     """
-    dl1_attrs = parse_dl1_path(str(path))
-    _, nsb_level, _ = find_tailcuts(dl1_attrs.path.parent, dl1_attrs.run_number)
-    return find_closest_nsb_level(nsb_level)
+    dl1_metadata = parse_dl1_path(str(path))
+    _, nsb_level, _ = find_tailcuts(dl1_metadata.path.parent, dl1_metadata.run_number)
+    return nsb_level_at_or_above(nsb_level)

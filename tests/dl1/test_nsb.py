@@ -2,7 +2,7 @@ import pytest
 
 from lst_tools.dl1 import nsb as nsb_module
 from lst_tools.dl1.nsb import resolve_dl1_nsb_level
-from lst_tools.finder import NSBLevel
+from lst_tools.nsb import NSBLevel
 
 
 def test_resolve_dl1_nsb_level_reads_run_directory(make_dl1_path, monkeypatch):

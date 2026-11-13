@@ -2,7 +2,7 @@ from pathlib import Path
 
 import pytest
 
-from lst_tools.finder import MCDL2Attribute, find_mc_dl2_files, parse_mc_dl2_path
+from lst_tools.finder import MCDL2Metadata, find_mc_dl2_files, parse_mc_dl2_path
 
 EXAMPLE_PATH = Path(
     "/fefs/aswg/data/mc/DL2/AllSky/20250212_v0.10.17_allsky_interp_dl2_irfs_nsb_0.14/"
@@ -24,7 +24,7 @@ def make_mc_file(campaign, dec, theta, azimuth, *, mc_type="GammaDiffuse", corsi
 def test_parse_mc_dl2_path_reads_attributes_from_directories():
     attributes = parse_mc_dl2_path(EXAMPLE_PATH)
 
-    assert attributes == MCDL2Attribute(
+    assert attributes == MCDL2Metadata(
         path=EXAMPLE_PATH,
         mc_type="Gamma",
         theta=10.0,
