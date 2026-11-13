@@ -28,12 +28,12 @@ statistics = tables.statistics          # one row per run
 tables.select_runs([14083, 14084]).save_to_h5file("selected.h5", overwrite=True)
 ```
 
-Quality cuts are applied with `DataFilter`:
+Quality cuts are applied with `RunQualityFilter`:
 
 ```python
-from lst_tools.datacheck import DataFilter
+from lst_tools.datacheck import RunQualityFilter
 
-data_filter = DataFilter(
+data_filter = RunQualityFilter(
     source_ra=83.632,
     source_dec=22.0145,
     min_angle_to_source=0.3,
@@ -46,8 +46,8 @@ selected = data_filter.apply_advanced_cuts(after_basic)
 
 ## Running the analysis pipeline: `init-lstana`
 
-Edit `config/config.toml` (the source, zenith binning, quality cuts, and
-one section per data level), then run:
+Edit `config/config.toml` (the source, quality cuts, and one section per
+data level), then run:
 
 ```bash
 init-lstana config/config.toml --output /path/to/analysis
@@ -55,18 +55,21 @@ init-lstana config/config.toml --output /path/to/analysis
 
 Every data level has two possible origins, selected by a `source` key:
 
-- `source = "link"` — place the files the standard pipeline already
-  produced on La Palma into the workspace zenith-bin tree.
+- `source = "link"` — place files the standard pipeline already produced on
+  La Palma directly into the corresponding data-level directory.
 - `source = "build"` — produce the level ourselves.
 
 The stages:
 
 1. **Select runs** — nightly DataCheck statistics filtered by the
-   `[data_filter]` cuts (and the `[source]` position), grouped into the
-   `[zenith_binning]` bins. The selected runs are saved under `data_check/`
-   and reused by later runs; `--refresh-selection` recomputes them.
+   `[data_filter]` cuts (and the `[source]` position). The selected runs are
+   saved under `data_check/` and reused by later runs; `--refresh-selection`
+   recomputes them. With `[data_filter] away_source = true`, the target-angle
+   range is disabled and pointings near known TeV sources in the HESS, LHAASO,
+   HAWC, and Gamma-Cat catalogs are rejected (`min_distance`,
+   `extension_factor`), selecting off runs directly within `init-lstana`.
 2. **DL1** (`[dl1]`) — the external input; linking is the only supported
-   mode today (`dl1/<zd_bin>/`).
+   mode today (`dl1/`).
 3. **DL2** (`[dl2]`) — either link the official DL2, or build our own by
    reconstructing the linked DL1 with the RF models of
    `[dl2.build] rf_directory` (a template: `$NSB_LEVEL` is substituted
@@ -81,37 +84,38 @@ The MC campaign comes from `[dl3.build] mc_dl2_directory`, a template
 whose `$NSB_LEVEL` is replaced from each DL2 file's provenance. Relative
 paths resolve below `/fefs/aswg/data/mc/DL2/AllSky`; absolute paths are also
 accepted. `point_like = true` selects `Gamma` MC and point-like IRFs, while
-the default `false` selects `GammaDiffuse` and full-enclosure IRFs.
+the default `false` selects `GammaDiffuse` and full-enclosure IRFs. Point-like
+reductions require exactly one of `theta_cut` or `theta_containment`.
 
 Each `[[dl3.build.reduction]]` table defines one named DL3 selection. Its
 quality filters (`intensity_cut`, `leakage_cut`) are passed to the reduction
 and its gammaness cut (`gh_cut` or `gh_efficiency`) is carried inside the
 IRFs, so data and IRFs always agree. Shared interpolation and MC options stay
 under `[dl3.build]`. Generated DL3 files are stored under
-`dl3/<reduction_name>/<zd_bin>/`, and IRFs under
-`irfs/<reduction_name>/nsb_<nsb>/dec_<line>/<irf_type>/<cut_label>/`.
+`dl3/<reduction_name>/`, and IRFs under
+`irfs/<reduction_name>/dec_<line>/nsb_<nsb>/<irf_type>/<cut_label>/`.
 The unique reduction name keeps products separate even when only their
 quality cuts differ; `<irf_type>` is `point` or `full-enclosure`, and
-`<cut_label>` names the gammaness selection (`gheff0.7` or `ghcut0.7`).
+`<cut_label>` names the gammaness selection (`gheff0.7` or `ghcut0.7`); point-like
+IRFs also include the theta selection (for example `ghcut0.7_thetacut0.2` or
+`gheff0.7_thetacont0.68`).
 
-DL3 builds follow `RunSelection`: each selected, binned run must have exactly
-one DL2 file under its assigned `dl2/<zd_bin>/` directory. Missing inputs
-stop the build with a list of runs and directories; ambiguous matches are
-rejected. Unselected files are ignored, and unbinned runs are skipped with
-a warning. The same selected inputs are saved with a SLURM build and checked
-again when its worker starts.
+DL2 and DL3 builds follow `RunSelection`: selected runs with missing or
+ambiguous input files are skipped with a warning, and unselected files are
+ignored. For each named DL3 reduction, the build first generates the required
+IRF interpolation grids in parallel, then reduces the selected DL2 runs in
+batches (`runs_per_worker`) across worker processes.
 
-DL3 builds prepare IRF interpolation sets in parallel, then run named
-reductions in parallel after all IRFs are ready. Workers are bounded by the
-local CPU count, or the job's CPU allocation under SLURM. With SLURM enabled,
-the same build runs inside one job; `[slurm.dl3]` sets its CPU, memory, and
-walltime allocation.
+When `[slurm] enabled = true`, compute-heavy builds are submitted to SLURM:
+DL2 submits batched reconstruction jobs (`[slurm.dl2] runs_per_job`) running
+`lst-dl1-to-dl2`, and DL3 writes `irfs/<reduction_name>/irf_config.json` and
+submits one job per named reduction (`[slurm.dl3] cpus_per_task`,
+`runs_per_worker`) running `lst-dl2-to-dl3`.
 
-Zenith bins include their lower edge and exclude their upper edge; the
-last bin also includes its upper edge. Reruns are incremental: existing
-links are kept, existing files are reused, and conflicting files are
-never replaced (each level has an `overwrite` option for its build mode).
-See the comments in `config/config.toml` for every option.
+Reruns are incremental: existing links are kept, existing files are reused,
+and conflicting files are never replaced (each level has an `overwrite`
+option for its build mode). See the comments in `config/config.toml` for every
+option.
 
 ## Summarizing selected runs: `summarize-lstana`
 
@@ -132,24 +136,6 @@ and the NSB level read from DL2 provenance. When multiple DL3 reductions are
 present, the first configured reduction is selected by default; a specific reduction
 can be chosen with `-r`/`--reduction` or `--dl3-dir`. Use `--overwrite` to replace
 an existing output table.
-
-## Preparing catalog-separated off runs: `prepare-offruns`
-
-```bash
-prepare-offruns config/config.toml \
-  --output /path/to/offruns \
-  --with-dl1 \
-  --with-dl2 \
-  --min-separation 3 \
-  --extension-factor 2.5
-```
-
-Applies the configured basic and advanced quality cuts with the
-target-angle range disabled, then rejects pointings near HESS, LHAASO,
-and HAWC catalog sources. Always writes
-`data_check/DL1_datacheck_offruns.h5`; `--with-dl1` (`--with-dl` is an
-alias) and `--with-dl2` additionally create idempotent data links under
-`dl1/` and `dl2/`.
 
 ## Development
 

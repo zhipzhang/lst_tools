@@ -2,7 +2,7 @@
 #
 # Every data level from DL1 onward has a section with a source mode:
 #   source = "link"   place files the standard pipeline already produced on
-#                     La Palma, grouped into our zenith-bin tree
+#                     La Palma directly into the corresponding data-level directory
 #   source = "build"  produce the level ourselves with [dlX.build] options
 # A level with enabled = false (or no section at all) is skipped.
 # Options of the inactive mode are ignored with a warning, so both blocks
@@ -13,11 +13,7 @@ name = "Crab Nebula"
 ra = 83.632
 dec = 22.0145
 
-# Stage 1: run selection. Runs passing the cuts below are grouped into
-# zenith bins (left-closed, the final upper edge is included).
-[zenith_binning]
-edges_deg = [0.0, 20.0, 30.0, 40.0, 50.0, 60.0, 70.0]
-
+# Stage 1: select runs using the configured quality cuts.
 [data_filter]
 # advanced cuts: derived from the cosmic-ray intensity spectrum and others
 with_advanced = false
@@ -34,6 +30,8 @@ extension_factor = 2.5 # extended sources extend the exclusion by this times the
 [data_filter.cuts]
 min_angle_to_source = 0.3   # deg
 max_angle_to_source = 0.5   # deg
+min_zenith_angle = 0.0      # deg
+max_zenith_angle = 70.0     # deg
 first_date = 0              # yyyymmdd; nights outside [first_date, last_date]
 last_date = 20999999        # are excluded before the datacheck files load
 max_pointing_dec_std = 0.01 # pointing stability, deg
@@ -65,9 +63,9 @@ overwrite = false
 #output_directory = "/data/linked/dl2"   # default: <output>/dl2
 
 # Stage 5+6 (DL3): reduce selected runs to DL3 observations with matching
-# IRFs, or link existing DL3 products instead. Building requires one DL2
-# file per selected run in its assigned zenith bin; missing inputs stop
-# the build, and unselected files are ignored.
+# IRFs, or link existing DL3 products instead. Building reads one DL2 file
+# per selected run directly below dl2/; missing or ambiguous inputs are
+# skipped with a warning, and unselected files are ignored.
 [dl3]
 enabled = true
 source = "build" # "build" | "link"
@@ -98,6 +96,9 @@ leakage_cut = 1.0
 gh_efficiency = 0.7
 #gh_cut = 0.7                   # alternative to gh_efficiency
 point_like = false # true for point-like IRFs; false for full-enclosure
+# For point_like = true, set exactly one theta selection:
+#theta_cut = 0.2                # fixed theta cut in degrees
+#theta_containment = 0.68       # energy-dependent containment fraction
 
 #[dl3.link]
 #output_directory = "/data/linked/dl3"   # default: <output>/dl3
@@ -105,7 +106,8 @@ point_like = false # true for point-like IRFs; false for full-enclosure
 
 # Optional SLURM execution:
 # When enabled = true, compute-heavy stages submit jobs via simple_slurm.
-# DL3 uses one job whose worker parallelizes IRF groups and reductions.
+# DL3 submits one job per named reduction, whose worker parallelizes IRF
+# grids and DL2-to-DL3 reduction batches.
 [slurm]
 enabled = true
 partition = "long"
@@ -120,8 +122,9 @@ mem = "40GB"      # Memory limit per job
 time = "02:00:00" # Walltime limit (hh:mm:ss)
 
 [slurm.dl3]
-# One job runs both phases, with at most cpus_per_task workers preparing
-# IRF sets or running named reductions.
+# Each named reduction runs in its own job, with at most cpus_per_task
+# workers preparing IRF grids or reducing batches of runs_per_worker DL2 runs.
+runs_per_worker = 5
 cpus_per_task = 8
 mem = "40GB"
 time = "04:00:00"

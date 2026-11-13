@@ -9,7 +9,7 @@ from astropy.io import fits
 from astropy.table import Table
 
 from lst_tools.datacheck import DataCheckTables
-from lst_tools.dl2 import LSTDL2EventTable
+from lst_tools.dl2 import LSTObservedDL2Table
 from lst_tools.pipeline import PipelineConfig
 from lst_tools.scripts.init_lstana import load_config, make_producers, selection_file
 
@@ -53,7 +53,7 @@ def summarize_runs(
         search_dl3_dir = dl3_dir / reduction
 
     for run in selected.to_dict(orient="records"):
-        run_number = int(run["run_number"])
+        run_number = int(run["runnumber"])
         dl3_file = _find_run_file(search_dl3_dir, "dl3", run_number)
         if dl3_file is None and search_dl3_dir != dl3_dir:
             dl3_file = _find_run_file(dl3_dir, "dl3", run_number)
@@ -67,7 +67,7 @@ def summarize_runs(
             dl2_file = _find_run_file(dl2_dir, "dl2", run_number)
             if dl2_file is not None:
                 try:
-                    nsb_level = LSTDL2EventTable(dl2_file).nsb_level or float("nan")
+                    nsb_level = LSTObservedDL2Table(dl2_file).nsb_level or float("nan")
                 except (KeyError, ValueError, OSError, AttributeError):
                     nsb_level = float("nan")
 

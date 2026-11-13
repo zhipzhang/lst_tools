@@ -26,13 +26,8 @@ else:  # pragma: no cover - Python 3.10 compatibility
     import tomli as tomllib
 
 from lst_tools.catalog import select_runs_away_from_sources
-from lst_tools.datacheck import (
-    DataCheckTables,
-    DataFilter,
-    assign_zenith_bins,
-    validate_zenith_bin_edges,
-)
-from lst_tools.finder.helper import filter_date
+from lst_tools.datacheck import DataCheckTables, RunQualityFilter
+from lst_tools.datacheck.utils import filter_paths_by_date
 from lst_tools.helper import glob_files
 from lst_tools.pipeline import (
     DL1Producer,
@@ -69,14 +64,14 @@ def load_datacheck_tables(raw_config: dict) -> DataCheckTables:
     """
     files = glob_files(DATACHECK_DIR, DATACHECK_PATTERN)
     cuts = raw_config.get("data_filter", {}).get("cuts", {})
-    files = filter_date(files, int(cuts.get("first_date", 0)), int(cuts.get("last_date", 20999999)))
+    files = filter_paths_by_date(files, int(cuts.get("first_date", 0)), int(cuts.get("last_date", 20999999)))
     if not files:
         raise FileNotFoundError(f"No datacheck files found under {DATACHECK_DIR} within the configured date range")
     return DataCheckTables.from_files(files)
 
 
 def select_runs(raw_config: dict) -> RunSelection:
-    """Stages 1-2 input: apply the data-quality cuts and assign zenith bins.
+    """Stages 1-2 input: apply the configured data-quality cuts.
 
     With ``[data_filter] away_source = true`` the target-angle cuts are
     disabled and runs pointed near any catalog source are rejected instead,
@@ -84,18 +79,15 @@ def select_runs(raw_config: dict) -> RunSelection:
     workspace.
     """
     source_config = SourceConfig.parse(raw_config.get("source"))
-    edges = validate_zenith_bin_edges(raw_config["zenith_binning"]["edges_deg"])
     data_filter_config = raw_config.get("data_filter", {})
     cuts = dict(data_filter_config.get("cuts", {}))
-    cuts["min_zenith_angle"] = edges[0]
-    cuts["max_zenith_angle"] = edges[-1]
     away_source = bool(data_filter_config.get("away_source", False))
     if away_source:
         # A pointing away from every catalog source cannot be inside the
         # target-angle range, and the target itself is in the catalogs.
         cuts["min_angle_to_source"] = 0.0
         cuts["max_angle_to_source"] = 180.0
-    data_filter = DataFilter(source_ra=source_config.ra, source_dec=source_config.dec, **cuts)
+    data_filter = RunQualityFilter(source_ra=source_config.ra, source_dec=source_config.dec, **cuts)
 
     tables = load_datacheck_tables(raw_config)
     after_basic_cuts = data_filter.apply_basic_cuts(tables.statistics)
@@ -113,8 +105,7 @@ def select_runs(raw_config: dict) -> RunSelection:
         )
 
     return RunSelection(
-        edges=edges,
-        selected=assign_zenith_bins(selected, edges),
+        selected=selected,
         tables=tables,
         after_basic_cuts=after_basic_cuts,
         data_filter=data_filter,
@@ -136,21 +127,16 @@ def load_saved_selection(raw_config: dict, output_root: Path) -> RunSelection | 
     """The selection an earlier run saved, or ``None`` when there is none.
 
     The file holds the already-selected runs, so neither the nightly
-    datacheck files nor the cuts have to be applied again; only the zenith
-    bins are assigned, from the configured edges. ``after_basic_cuts`` stays
-    ``None`` — the pre-cut table is not saved — so the advanced-cut plots
-    are only possible for a freshly computed selection.
+    datacheck files nor the cuts have to be applied again.
+    ``after_basic_cuts`` stays ``None`` — the pre-cut table is not saved —
+    so the advanced-cut plots are only possible for a freshly computed
+    selection.
     """
     path = selection_file(raw_config, output_root)
     if not path.is_file():
         return None
-    edges = validate_zenith_bin_edges(raw_config["zenith_binning"]["edges_deg"])
     tables = DataCheckTables.from_files([str(path)])
-    return RunSelection(
-        edges=edges,
-        selected=assign_zenith_bins(tables.statistics, edges),
-        tables=tables,
-    )
+    return RunSelection(selected=tables.statistics, tables=tables)
 
 
 def save_datacheck_outputs(selection: RunSelection, raw_config: dict, output_dir: Path) -> None:
@@ -163,7 +149,7 @@ def save_datacheck_outputs(selection: RunSelection, raw_config: dict, output_dir
     if selection.tables is None:
         raise ValueError("save_datacheck_outputs requires the datacheck tables from select_runs")
 
-    run_numbers = selection.selected["run_number"].tolist()
+    run_numbers = selection.selected["runnumber"].tolist()
     selection.tables.select_runs(run_numbers).save_to_h5file(
         output_dir / f"data_check_{selection_stem(raw_config)}.h5",
         overwrite=True,

@@ -9,7 +9,7 @@ from lst_tools.scripts import summarize_lstana
 
 
 def _patch_readers(monkeypatch):
-    selected = pd.DataFrame({"run_number": [13647], "date": [20230709]})
+    selected = pd.DataFrame({"runnumber": [13647], "date": [20230709]})
     monkeypatch.setattr(
         summarize_lstana.DataCheckTables,
         "from_files",
@@ -27,7 +27,7 @@ def _patch_readers(monkeypatch):
         "POINTING": {"B_DELTA": "52.34995 deg"},
     }
     monkeypatch.setattr(summarize_lstana.fits, "getheader", lambda path, extname: headers[extname])
-    monkeypatch.setattr(summarize_lstana, "LSTDL2EventTable", lambda path: SimpleNamespace(nsb_level=0.22))
+    monkeypatch.setattr(summarize_lstana, "LSTObservedDL2Table", lambda path: SimpleNamespace(nsb_level=0.22))
 
 
 def test_summarize_selected_run(tmp_path, monkeypatch):
@@ -123,9 +123,6 @@ def test_main_uses_first_reduction_when_multiple(tmp_path, monkeypatch):
         name = "Test Source"
         ra = 83.632
         dec = 22.0145
-
-        [zenith_binning]
-        edges_deg = [0.0, 20.0, 30.0]
 
         [dl3]
         enabled = true

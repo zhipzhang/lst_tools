@@ -1,14 +1,10 @@
 from .datacheck import DataCheckTables
-from .datafilter import DataFilter
-from .utils import assign_zenith_bins, validate_zenith_bin_edges, zenith_bin_labels
+from .run_quality_filter import RunQualityFilter
 
 __all__ = [
     "DataCheckTables",
-    "DataFilter",
-    "assign_zenith_bins",
+    "RunQualityFilter",
     "plot_advanced_distributions",
-    "validate_zenith_bin_edges",
-    "zenith_bin_labels",
 ]
 
 

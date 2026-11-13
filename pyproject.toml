@@ -34,7 +34,7 @@ summarize-lstana = "lst_tools.scripts.summarize_lstana:main"
 prepare-offruns = "lst_tools.scripts.prepare_offruns:main"
 generate-dl4 = "lst_tools.scripts.generate_dl4:main"
 lst-dl1-to-dl2 = "lst_tools.scripts.dl1_to_dl2:main"
-lst-dl3-build = "lst_tools.scripts.dl3_build:main"
+lst-dl2-to-dl3 = "lst_tools.scripts.dl2_to_dl3:main"
 
 [project.optional-dependencies]
 dev = [

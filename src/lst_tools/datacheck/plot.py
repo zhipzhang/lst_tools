@@ -1,14 +1,14 @@
-import numpy as np
 import pandas as pd
 from matplotlib.figure import Figure
 
 from ..helper import init_plot, plot_histogram
-from .datafilter import DataFilter
+from .run_quality_filter import RunQualityFilter
+from .utils import mean_fit_p_value_to_sigma
 
 
 def plot_advanced_distributions(
     statistics: pd.DataFrame,
-    data_filter: DataFilter,
+    data_filter: RunQualityFilter,
 ) -> dict[str, Figure]:
     """Create standalone figures for advanced-cut distributions.
 
@@ -20,55 +20,44 @@ def plot_advanced_distributions(
         raise ValueError("advanced-cut columns and n_subruns must exist in statistics")
 
     init_plot()
-    p_value_in_sigma = (statistics["mean_fit_p_value"] - 0.5) * np.sqrt(12 * statistics["n_subruns"])
+    fit_p_value_sigma = mean_fit_p_value_to_sigma(statistics["mean_fit_p_value"], statistics["n_subruns"])
     distributions = {
-        "mean_diffuse_nsb_std": (
-            statistics["mean_diffuse_nsb_std"],
-            None,
-            data_filter.max_diffuse_nsb_std,
-            "mean diffuse NSB std",
-        ),
-        "mean_intensity_threshold": (
-            statistics["mean_intensity_threshold"],
-            None,
-            data_filter.max_intensity_at_half_peak_rate,
-            "mean intensity threshold",
-        ),
-        "mean_fit_p_value": (
-            p_value_in_sigma,
-            data_filter.min_mean_fit_p,
-            None,
-            "mean fit p-value (#sigma)",
-        ),
-        "mean_index": (
-            statistics["mean_index"],
-            data_filter.min_drdi_index,
-            data_filter.max_drdi_index,
-            "mean DRDI index",
-        ),
-        "mean_R422": (
-            statistics["mean_R422"],
-            data_filter.min_drdi_at_422pe,
-            None,
-            "mean R422",
-        ),
-        "fraction_around_mode_R422": (
-            statistics["fraction_around_mode_R422"],
-            data_filter.min_fraction_around_mode,
-            None,
-            "fraction around mode R422",
-        ),
+        "mean_diffuse_nsb_std": {
+            "data": statistics["mean_diffuse_nsb_std"],
+            "max": data_filter.max_diffuse_nsb_std,
+            "xlabel": "mean diffuse NSB std",
+        },
+        "mean_intensity_threshold": {
+            "data": statistics["mean_intensity_threshold"],
+            "max": data_filter.max_intensity_at_half_peak_rate,
+            "xlabel": "mean intensity threshold",
+        },
+        "mean_fit_p_value": {
+            "data": fit_p_value_sigma,
+            "min": data_filter.min_mean_fit_p_sigma,
+            "xlabel": "mean fit p-value (#sigma)",
+        },
+        "mean_index": {
+            "data": statistics["mean_index"],
+            "min": data_filter.min_drdi_index,
+            "max": data_filter.max_drdi_index,
+            "xlabel": "mean DRDI index",
+        },
+        "mean_R422": {
+            "data": statistics["mean_R422"],
+            "min": data_filter.min_drdi_at_422pe,
+            "xlabel": "mean R422",
+        },
+        "fraction_around_mode_R422": {
+            "data": statistics["fraction_around_mode_R422"],
+            "min": data_filter.min_fraction_around_mode,
+            "xlabel": "fraction around mode R422",
+        },
     }
 
     figures = {}
-    for name, (values, minimum, maximum, xlabel) in distributions.items():
-        figure, _ = plot_histogram(
-            values,
-            min=minimum,
-            max=maximum,
-            xlabel=xlabel,
-            title=name,
-        )
+    for name, distribution in distributions.items():
+        figure, _ = plot_histogram(**distribution, title=name)
         figures[name] = figure
 
     return figures

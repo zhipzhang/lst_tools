@@ -12,7 +12,6 @@ analysis.
    installation
    datacheck
    pipeline
-   offruns
    bkg
 
 .. toctree::

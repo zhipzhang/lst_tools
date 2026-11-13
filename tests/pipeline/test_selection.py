@@ -6,66 +6,40 @@ import pytest
 from lst_tools.pipeline import RunSelection, SelectedRun
 
 
-def make_selection(rows: list[dict], edges=(0.0, 20.0, 30.0)) -> RunSelection:
-    frame = pd.DataFrame(rows)
-    return RunSelection(edges=edges, selected=frame)
+def make_selection(rows: list[dict]) -> RunSelection:
+    return RunSelection(selected=pd.DataFrame(rows))
 
 
-BINNED = [
-    {"run_number": 10623, "date": 20220426, "zenith_bin": "zd_20_30"},
-    {"run_number": 10624, "date": 20220426, "zenith_bin": "zd_0_20"},
+RUNS = [
+    {"runnumber": 10623, "date": 20220426},
+    {"runnumber": 10624, "date": 20220426},
 ]
-UNBINNED = {"run_number": 10625, "date": 20220427, "zenith_bin": None}
 
 
-def test_iteration_yields_typed_selected_runs():
-    selection = make_selection(BINNED)
-
-    runs = list(selection)
+def test_iteration_yields_every_selected_run():
+    runs = list(make_selection(RUNS))
 
     assert runs == [
-        SelectedRun(run_number=10623, date=20220426, zenith_bin="zd_20_30"),
-        SelectedRun(run_number=10624, date=20220426, zenith_bin="zd_0_20"),
+        SelectedRun(run_number=10623, date=20220426),
+        SelectedRun(run_number=10624, date=20220426),
     ]
     assert all(isinstance(run.run_number, int) for run in runs)
     assert all(isinstance(run.date, int) for run in runs)
 
 
-def test_unbinned_runs_are_excluded_from_iteration_and_listed():
-    selection = make_selection([*BINNED, UNBINNED])
-
-    assert [run.run_number for run in selection] == [10623, 10624]
-    assert selection.unbinned_run_numbers == [10625]
-
-
-def test_all_unbinned_selection_iterates_empty():
-    selection = make_selection([UNBINNED])
-
-    assert list(selection) == []
-    assert selection.unbinned_run_numbers == [10625]
-
-
 def test_selected_run_is_immutable():
-    run = SelectedRun(run_number=1, date=20220101, zenith_bin="zd_0_20")
+    run = SelectedRun(run_number=1, date=20220101)
 
     with pytest.raises(dataclasses.FrozenInstanceError):
         run.run_number = 2
 
 
-def test_repr_summarizes_counts_and_edges():
-    selection = make_selection([*BINNED, UNBINNED])
-
-    assert repr(selection) == "RunSelection(2 binned runs, 1 unbinned, edges=(0.0, 20.0, 30.0))"
+def test_repr_summarizes_run_count():
+    assert repr(make_selection(RUNS)) == "RunSelection(2 runs)"
 
 
-def test_empty_selection_iterates_and_reprs_without_a_mask_error():
-    # An empty ``zenith_bin`` column produces a float mask; pandas would
-    # read it as column labels rather than rows.
-    selection = RunSelection(
-        edges=(0.0, 20.0, 30.0),
-        selected=pd.DataFrame({"run_number": [], "date": [], "zenith_bin": []}),
-    )
+def test_empty_selection_iterates_and_reprs():
+    selection = RunSelection(selected=pd.DataFrame({"runnumber": [], "date": []}))
 
     assert list(selection) == []
-    assert selection.unbinned_run_numbers == []
-    assert repr(selection) == "RunSelection(0 binned runs, 0 unbinned, edges=(0.0, 20.0, 30.0))"
+    assert repr(selection) == "RunSelection(0 runs)"

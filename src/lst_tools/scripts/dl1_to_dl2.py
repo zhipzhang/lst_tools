@@ -6,7 +6,7 @@ Intended as both a standalone CLI tool and a worker entrypoint for SLURM batch j
 import argparse
 from pathlib import Path
 
-from lst_tools.dl1.dl1event import reconstruct_dl1_to_dl2
+from lst_tools.dl2.reconstruction import reconstruct_dl1_to_dl2
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -55,15 +55,18 @@ def main(argv: list[str] | None = None) -> None:
     args = parser.parse_args(argv)
 
     try:
-        reconstruct_dl1_to_dl2(
+        output_paths = reconstruct_dl1_to_dl2(
             files=args.input_files,
-            out_root=args.output_dir,
+            output_directory=args.output_dir,
             model_directory_template=args.model_dir,
             overwrite=args.overwrite,
         )
     except FileNotFoundError as error:
         parser.error(str(error))
-    print(f"Reconstructed {len(args.input_files)} DL1 file(s) into {args.output_dir}")
+    print(
+        f"Reconstruction finished: {len(output_paths)} of {len(args.input_files)} "
+        f"input file(s) have DL2 outputs in {args.output_dir}"
+    )
 
 
 if __name__ == "__main__":

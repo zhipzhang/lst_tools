@@ -2,41 +2,62 @@ import numpy as np
 import pandas as pd
 import pytest
 
-from lst_tools.datacheck.utils import (
-    assign_zenith_bins,
-    azimuth_angle_mean,
-)
+from lst_tools.datacheck.utils import circular_mean_degrees, filter_paths_by_date, mean_fit_p_value_to_sigma
 
 
-def test_azimuth_angle_mean():
-    azimuth_angles = [0.015, 359.99]
-    result = azimuth_angle_mean(azimuth_angles)
-    assert result == pytest.approx(0, abs=0.005)
+def test_mean_fit_p_value_to_sigma():
+    mean_p_value = pd.Series([0.5, 0.25, 0.0])
+    n_subruns = pd.Series([3, 3, 12])
+
+    result = mean_fit_p_value_to_sigma(mean_p_value, n_subruns)
+
+    np.testing.assert_allclose(result, [0.0, -1.5, -6.0])
 
 
-def test_assign_zenith_bins_has_unique_boundaries():
-    angles = np.array([0.0, 19.999, 20.0, 39.999, 40.0, 70.0])
-    statistics = pd.DataFrame({"mean_cos_zd": np.cos(np.radians(angles))})
-
-    result = assign_zenith_bins(statistics, [0, 20, 40, 70])
-
-    assert result["zenith_bin"].tolist() == [
-        "zd_0_20",
-        "zd_0_20",
-        "zd_20_40",
-        "zd_20_40",
-        "zd_40_70",
-        "zd_40_70",
-    ]
-    assert result["mean_zenith_angle"].to_numpy() == pytest.approx(angles)
-
-
+# TEST: sliding_window_mode needs a dedicated scientific review of its cumulative-window
+# indexing before correct reference results can be pinned. Its current algorithm is unchanged.
 @pytest.mark.parametrize(
-    "edges",
-    [[], [20], [0, 20, 20], [0, 30, 20], [-1, 20], [0, 91], [0, np.nan, 20]],
+    ("angles", "expected"),
+    [
+        ([0.015, 359.99], 0.0025),
+        ([10.0, 20.0], 15.0),
+    ],
 )
-def test_assign_zenith_bins_rejects_invalid_edges(edges):
-    statistics = pd.DataFrame({"mean_cos_zd": [1.0]})
+def test_circular_mean_degrees(angles, expected):
+    assert circular_mean_degrees(angles) == pytest.approx(expected, abs=1e-12)
 
-    with pytest.raises(ValueError):
-        assign_zenith_bins(statistics, edges)
+
+@pytest.mark.parametrize("angles", [[], [np.nan, np.nan]])
+def test_circular_mean_degrees_returns_nan_without_finite_angles(angles):
+    assert np.isnan(circular_mean_degrees(angles))
+
+
+def test_filter_paths_by_date():
+    files = [
+        "DL1_datacheck_20220425.h5",
+        "DL1_datacheck_20220426.h5",
+        "DL1_datacheck_20220427.h5",
+        "DL1_datacheck_20220428.h5",
+    ]
+    assert filter_paths_by_date(files, 20220426, 20220427) == [
+        "DL1_datacheck_20220426.h5",
+        "DL1_datacheck_20220427.h5",
+    ]
+
+
+def test_filter_paths_by_date_no_match():
+    files = ["DL1_datacheck_20220426.h5"]
+    assert filter_paths_by_date(files, 20230101, 20231231) == []
+
+
+def test_filter_paths_by_date_ignores_date_in_directory():
+    files = [
+        "/data/20230101/DL1_datacheck_20220426.h5",
+        "/data/20230101/DL1_datacheck_20230102.h5",
+    ]
+    assert filter_paths_by_date(files, 20230101, 20230131) == ["/data/20230101/DL1_datacheck_20230102.h5"]
+
+
+def test_filter_paths_by_date_drops_files_without_date():
+    files = ["DL1_datacheck_20220426.h5", "dl1_LST-1.Run10623.h5"]
+    assert filter_paths_by_date(files, 20220101, 20230101) == ["DL1_datacheck_20220426.h5"]

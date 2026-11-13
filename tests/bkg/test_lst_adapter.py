@@ -14,7 +14,7 @@ from gammapy.utils.time import time_ref_to_dict
 
 from lst_tools.bkg import SkyOffsetEvents, sky_offset_events_from_lstdl2, sky_offset_events_from_lstmcdl2
 from lst_tools.bkg.lst_adapter import sky_offset_events_from_dl3
-from lst_tools.dl2 import LSTDL2MCTable
+from lst_tools.dl2 import LSTSimulatedDL2Table
 from lst_tools.location import LST_LOCATION
 
 
@@ -51,8 +51,8 @@ def run_dl2():
         }
     )
     dl2 = SimpleNamespace(
-        data=data,
-        t_elapsed=12.5,
+        events=data,
+        elapsed_time=12.5,
         pointing_ra=pointing.ra,
         pointing_dec=pointing.dec,
     )
@@ -79,11 +79,11 @@ def test_adapter_adds_mean_observation_frame_metadata(run_dl2):
     events = sky_offset_events_from_lstdl2(dl2)
 
     expected_az = np.arctan2(
-        np.sin(dl2.data["az_tel"]).mean(),
-        np.cos(dl2.data["az_tel"]).mean(),
+        np.sin(dl2.events["az_tel"]).mean(),
+        np.cos(dl2.events["az_tel"]).mean(),
     )
-    assert events.frame.mean_time.unix == pytest.approx(dl2.data["trigger_time"].mean())
-    assert events.frame.pointing_alt.to_value(u.rad) == pytest.approx(dl2.data["alt_tel"].mean())
+    assert events.frame.mean_time.unix == pytest.approx(dl2.events["trigger_time"].mean())
+    assert events.frame.pointing_alt.to_value(u.rad) == pytest.approx(dl2.events["alt_tel"].mean())
     assert events.frame.pointing_az.to_value(u.rad) == pytest.approx(expected_az)
 
 
@@ -108,7 +108,7 @@ def test_adapter_returns_empty_exposure_when_no_events_survive(run_dl2):
 
 def test_adapter_accepts_quantity_livetime(run_dl2):
     dl2, _, _ = run_dl2
-    dl2.t_elapsed = 2 * u.min
+    dl2.elapsed_time = 2 * u.min
 
     events = sky_offset_events_from_lstdl2(dl2)
 
@@ -117,21 +117,21 @@ def test_adapter_accepts_quantity_livetime(run_dl2):
 
 def test_adapter_does_not_modify_input_dataframe(run_dl2):
     dl2, _, _ = run_dl2
-    original = dl2.data.copy(deep=True)
+    original = dl2.events.copy(deep=True)
 
     sky_offset_events_from_lstdl2(dl2)
 
-    pd.testing.assert_frame_equal(dl2.data, original)
+    pd.testing.assert_frame_equal(dl2.events, original)
 
 
-def test_adapter_requires_data_pointing_and_elapsed_time():
-    with pytest.raises(TypeError, match="data.*t_elapsed"):
+def test_adapter_requires_events_pointing_and_elapsed_time():
+    with pytest.raises(TypeError, match="events.*elapsed_time"):
         sky_offset_events_from_lstdl2(object())
 
 
-def test_adapter_requires_dataframe_data(run_dl2):
+def test_adapter_requires_dataframe_events(run_dl2):
     dl2, _, _ = run_dl2
-    dl2.data = []
+    dl2.events = []
 
     with pytest.raises(TypeError, match="DataFrame"):
         sky_offset_events_from_lstdl2(dl2)
@@ -139,7 +139,7 @@ def test_adapter_requires_dataframe_data(run_dl2):
 
 def test_adapter_validates_elapsed_time(run_dl2):
     dl2, _, _ = run_dl2
-    dl2.t_elapsed = -1
+    dl2.elapsed_time = -1
 
     with pytest.raises(ValueError, match="livetime"):
         sky_offset_events_from_lstdl2(dl2)
@@ -161,7 +161,7 @@ def run_dl2_altaz():
             "trigger_time": event_time.unix,
         }
     )
-    dl2 = SimpleNamespace(data=data, t_elapsed=30.0)
+    dl2 = SimpleNamespace(events=data, elapsed_time=30.0)
     return dl2, event_time
 
 
@@ -171,7 +171,7 @@ def test_adapter_altaz_frame_matches_scalar_per_event_reference(run_dl2_altaz):
     events = sky_offset_events_from_lstdl2(dl2, frame="altaz")
 
     expected_x, expected_y = [], []
-    for row, time in zip(dl2.data.itertuples(), event_time):
+    for row, time in zip(dl2.events.itertuples(), event_time):
         altaz_frame = AltAz(obstime=time, location=LST_LOCATION)
         origin = SkyCoord(alt=row.alt_tel * u.rad, az=row.az_tel * u.rad, frame=altaz_frame)
         direction = SkyCoord(alt=row.reco_alt * u.rad, az=row.reco_az * u.rad, frame=altaz_frame)
@@ -187,8 +187,8 @@ def test_adapter_altaz_frame_matches_scalar_per_event_reference(run_dl2_altaz):
 
 def test_adapter_altaz_frame_centers_each_event_on_its_own_pointing(run_dl2_altaz):
     dl2, _ = run_dl2_altaz
-    dl2.data["reco_alt"] = dl2.data["alt_tel"]
-    dl2.data["reco_az"] = dl2.data["az_tel"]
+    dl2.events["reco_alt"] = dl2.events["alt_tel"]
+    dl2.events["reco_az"] = dl2.events["az_tel"]
 
     events = sky_offset_events_from_lstdl2(dl2, frame="altaz")
 
@@ -238,9 +238,9 @@ def test_dl3_adapter_altaz_frame_matches_scalar_per_event_reference():
 
 
 def test_mc_adapter_uses_table_pointing_default_time_and_fixed_livetime():
-    dl2 = object.__new__(LSTDL2MCTable)
+    dl2 = object.__new__(LSTSimulatedDL2Table)
     dl2.file_name = "/data/node_theta_10.0_az_102.199_/dl2_merged.h5"
-    dl2.dl2_params = pd.DataFrame(
+    dl2.events = pd.DataFrame(
         {
             "reco_alt": np.deg2rad([80.0, 80.2]),
             "reco_az": np.deg2rad([102.199, 102.199]),
